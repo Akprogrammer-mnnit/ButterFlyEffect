@@ -14,7 +14,8 @@
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.2.1",
-    "neo4j-driver": "^6.0.1"
+    "neo4j-driver": "^6.0.1",
+    "tree-sitter": "^0.25.0"
   },
   "devDependencies": {
     "@types/cors": "^2.8.19",
