@@ -7,5 +7,6 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({extended:true}));
 
-
+import projectRouter from './routes/project.route'
+app.use('/api',projectRouter);
 export default app;
