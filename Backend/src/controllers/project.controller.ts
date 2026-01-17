@@ -19,7 +19,7 @@ export const analyzeRepo = asyncHandler(async(req:Request,res:Response)=>{
     tempdir = cloneResult.tempdir;
     folderId = cloneResult.folderid;
     console.log(`cloned successfully to: ${tempdir}`);
-    run();
+    run(`${folderId}`);
     return res.status(200).json(
         {message:"successfully uploaded the folder"}
     )
