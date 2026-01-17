@@ -11,9 +11,6 @@ const IGNORED_FOLDERS = ['node_modules', '.git', 'dist', 'build'];
 const parser = new Parser();
 parser.setLanguage(JavaScript as any);
 
-/**
- * Recursively get JS files (same behavior as first code, but with ignores)
- */
 function getAllFiles(dirPath: string, files: string[] = []): string[] {
     const entries = fs.readdirSync(dirPath);
 
@@ -33,9 +30,6 @@ function getAllFiles(dirPath: string, files: string[] = []): string[] {
     return files;
 }
 
-/**
- * Optimized semantic serialization (from second code)
- */
 function serializeSemanticNode(
     node: Parser.SyntaxNode,
     sourceCode: string
@@ -61,15 +55,12 @@ function serializeSemanticNode(
     };
 }
 
-/**
- * MAIN RUN FUNCTION (PATH LOGIC SAME AS FIRST CODE)
- */
 function run(fullpath: string) {
     const FINAL_INPUT_DIR = path.join(inputDir, fullpath);
     const FINAL_OUTPUT_DIR = path.join(OUTPUT_DIR, fullpath);
 
     if (!fs.existsSync(FINAL_INPUT_DIR)) {
-        console.warn(`❌ Input folder doesn't exist: ${FINAL_INPUT_DIR}`);
+        console.warn(` Input folder doesn't exist: ${FINAL_INPUT_DIR}`);
         return;
     }
 
@@ -81,11 +72,11 @@ function run(fullpath: string) {
     console.log(jsFiles);
 
     if (jsFiles.length === 0) {
-        console.warn(`⚠️ No JS files found in ${FINAL_INPUT_DIR}`);
+        console.warn(` No JS files found in ${FINAL_INPUT_DIR}`);
         return;
     }
 
-    console.log(`🚀 Found ${jsFiles.length} files. Starting semantic parse...`);
+    console.log(` Found ${jsFiles.length} files. Starting semantic parse...`);
 
     jsFiles.forEach(fullPath => {
         try {
@@ -114,13 +105,13 @@ function run(fullpath: string) {
                 JSON.stringify(output, null, 2)
             );
 
-            console.log(`✅ Processed: ${relativePath}`);
+            console.log(` Processed: ${relativePath}`);
         } catch (err) {
-            console.error(`❌ Error parsing ${fullPath}`, err);
+            console.error(` Error parsing ${fullPath}`, err);
         }
     });
 
-    console.log('\n🎉 All files processed successfully.');
+    console.log('\n All files processed successfully.');
 }
 
 export default run;
