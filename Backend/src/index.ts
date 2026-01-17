@@ -4,7 +4,7 @@ dotenv.config({path:'./.env'})
 import app from './app'
 import { connectDB } from '../db/index';
 import service from './services/parse.service';
-service()
+// service()
 connectDB()
 .then(()=>{
     const PORT = process.env.PORT || 5555
