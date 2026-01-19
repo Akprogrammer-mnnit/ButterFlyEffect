@@ -1,9 +1,9 @@
 import {Request,Response} from 'express';
 import {asyncHandler} from '../utils/asyncHandler'
 import {ApiError} from '../utils/apiError'
-import {ApiResponse} from '../utils/apiResponse'
 import {cloneRepo,deleteTemp} from '../services/git.service'
 import run from "../services/parse.service"
+import { AstService} from '../services/ast.service';
 export const analyzeRepo = asyncHandler(async(req:Request,res:Response)=>{
     const {gitHubURL} = req.body;
 
@@ -20,6 +20,9 @@ export const analyzeRepo = asyncHandler(async(req:Request,res:Response)=>{
     folderId = cloneResult.folderid;
     console.log(`cloned successfully to: ${tempdir}`);
     run();
+    const astLoader = new AstService();
+    await astLoader.processAstFolder("ast");
+    console.log("Done.");
     return res.status(200).json(
         {message:"successfully uploaded the folder"}
     )
