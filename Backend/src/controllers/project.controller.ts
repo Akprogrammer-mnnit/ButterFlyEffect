@@ -4,6 +4,7 @@ import {ApiError} from '../utils/apiError'
 import {cloneRepo,deleteTemp} from '../services/git.service'
 import run from "../services/parse.service"
 import { AstService} from '../services/ast.service';
+
 export const analyzeRepo = asyncHandler(async(req:Request,res:Response)=>{
     const {gitHubURL} = req.body;
 
@@ -16,12 +17,13 @@ export const analyzeRepo = asyncHandler(async(req:Request,res:Response)=>{
 
     const cloneResult = await cloneRepo(gitHubURL);
     if(!cloneResult) throw new ApiError(404,"could not clone the repo")
+
     tempdir = cloneResult.tempdir;
     folderId = cloneResult.folderid;
     console.log(`cloned successfully to: ${tempdir}`);
-    run(`${folderId}`);
-    const astLoader = new AstService();
-    await astLoader.processAstFolder("ast");
+    await run(folderId);
+    const astService = new AstService();
+    await astService.processAstFolder(folderId);
     console.log("Done.");
     return res.status(200).json(
         {message:"successfully uploaded the folder"}

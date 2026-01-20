@@ -1,117 +1,111 @@
-import Parser from 'tree-sitter';
-import JavaScript from 'tree-sitter-javascript';
-import * as fs from 'fs';
-import * as path from 'path';
+import Parser from 'tree-sitter'
+import JavaScript  from 'tree-sitter-javascript';
+import Python from 'tree-sitter-python'
+import Cpp from 'tree-sitter-cpp'
+import C from 'tree-sitter-c'
+import * as fs from 'fs'
+import * as path from 'path'
 
-let inputDir = './temp';
-let OUTPUT_DIR = './ast_results';
+const IGNORED_FOLDERS = ['node_modules', '.git','build', '__pycache__', '.venv', 'env'];
 
-const IGNORED_FOLDERS = ['node_modules', '.git', 'dist', 'build'];
-
+const LANG_MAP: Record<string,any> = {
+    '.js':JavaScript,
+    '.jsx':JavaScript,
+    '.py':Python,
+    '.cpp':Cpp,
+    '.c':C,
+    '.h':C,
+    '.cxx':Cpp
+}
 const parser = new Parser();
-parser.setLanguage(JavaScript as any);
 
-function getAllFiles(dirPath: string, files: string[] = []): string[] {
-    const entries = fs.readdirSync(dirPath);
-
-    for (const entry of entries) {
-        if (IGNORED_FOLDERS.includes(entry)) continue;
-
-        const fullPath = path.join(dirPath, entry);
-        const stat = fs.statSync(fullPath);
-
-        if (stat.isDirectory()) {
-            getAllFiles(fullPath, files);
-        } else if (entry.endsWith('.js') || entry.endsWith('.jsx')) {
-            files.push(fullPath);
-        }
+function getAllFiles(dirPath:string,files:string[]=[]): string[] {
+    let entries:string[]=[];
+    try{
+        entries = fs.readdirSync(dirPath);
+    }catch(e){
+        console.log(`access denied: ${e}`);
     }
-
+    for(const entry of entries){
+        if(IGNORED_FOLDERS.includes(entry)) continue;
+        const fullpath = path.join(dirPath,entry);
+        try{
+            const stat = fs.statSync(fullpath);
+            if(stat.isDirectory()) getAllFiles(fullpath,files);
+            else{
+                const ext = path.extname(entry).toLowerCase();
+                if(LANG_MAP[ext]){
+                    files.push(fullpath);
+                }
+            }
+        }catch(e){}
+    }
     return files;
 }
 
-function serializeSemanticNode(
-    node: Parser.SyntaxNode,
-    sourceCode: string
-): any {
-    const children: any[] = [];
-
-    for (let i = 0; i < node.childCount; i++) {
-        const child = node.child(i)!;
-        if (child.isNamed) {
-            children.push(serializeSemanticNode(child, sourceCode));
+function serializeSemanticNode(node:any,sourceCode:string){
+    const children: any[]=[];
+    for(let i=0;i<node.childCount;i++){
+        const child = node.child(i);
+        if(child && child.isNamed){
+            children.push(serializeSemanticNode(child,sourceCode));
         }
     }
+    const shouldCaptureText=[
+        'identifier','string','property_identifier','type_identifier','field_identifier','function_declarator'
+    ].includes(node.type);
 
-    return {
-        type: node.type,
-        text:
-            node.type === 'string'
-                ? node.text
-                : sourceCode.substring(node.startIndex, node.endIndex),
-        start: node.startPosition,
-        end: node.endPosition,
+    return{
+        type:node.type,
+        text:shouldCaptureText
+            ? sourceCode.substring(node.startIndex,node.endIndex)
+            :undefined,
         children
     };
 }
 
-function run(fullpath: string) {
-    const FINAL_INPUT_DIR = path.join(inputDir, fullpath);
-    const FINAL_OUTPUT_DIR = path.join(OUTPUT_DIR, fullpath);
+async function run(folderId:string){
+    const FINAL_INPUT_DIR = path.join(process.cwd(),'temp',folderId);
+    const FINAL_OUTPUT_DIR = path.join(process.cwd(),'ast_results',folderId);
 
-    if (!fs.existsSync(FINAL_INPUT_DIR)) {
-        console.warn(` Input folder doesn't exist: ${FINAL_INPUT_DIR}`);
+    if(!fs.existsSync(FINAL_INPUT_DIR)){
+        console.log(`input folder doesn't exist : ${FINAL_INPUT_DIR}`);
+        return;
+    }
+    if(!fs.existsSync(FINAL_OUTPUT_DIR)){
+        fs.mkdirSync(FINAL_OUTPUT_DIR,{recursive:true});
+    }
+    const sourceFiles = getAllFiles(FINAL_INPUT_DIR);
+    console.log(`[Parser] found ${sourceFiles.length} in ${folderId}`);
+
+    if(sourceFiles.length==0){
+        console.log(`no supported files found`);
         return;
     }
 
-    if (!fs.existsSync(FINAL_OUTPUT_DIR)) {
-        fs.mkdirSync(FINAL_OUTPUT_DIR, { recursive: true });
-    }
-
-    const jsFiles = getAllFiles(FINAL_INPUT_DIR);
-    console.log(jsFiles);
-
-    if (jsFiles.length === 0) {
-        console.warn(` No JS files found in ${FINAL_INPUT_DIR}`);
-        return;
-    }
-
-    console.log(` Found ${jsFiles.length} files. Starting semantic parse...`);
-
-    jsFiles.forEach(fullPath => {
+    for(const fullPath of sourceFiles){
         try {
-            const sourceCode = fs.readFileSync(fullPath, 'utf8');
+            const ext = path.extname(fullPath).toLowerCase();
+            const selectedLang = LANG_MAP[ext];
+            if(!selectedLang) continue;
+            parser.setLanguage(selectedLang);
+
+            const sourceCode = fs.readFileSync(fullPath,'utf8');
             const tree = parser.parse(sourceCode);
+            const semanticTree = serializeSemanticNode(tree.rootNode,sourceCode);
 
-            const semanticTree = serializeSemanticNode(
-                tree.rootNode,
-                sourceCode
-            );
+            const relativePath = path.relative(FINAL_INPUT_DIR,fullPath);
+            const safeFileName = relativePath.replace(/[/\\]/g,'_')+'.json';
+            const outputPath = path.join(FINAL_OUTPUT_DIR,safeFileName);
 
-            const relativePath = path.relative(FINAL_INPUT_DIR, fullPath);
-            const safeFileName =
-                relativePath.replace(/[/\\]/g, '_') + '.json';
-
-            const outputPath = path.join(FINAL_OUTPUT_DIR, safeFileName);
-
-            const output = {
-                file: relativePath,
-                timestamp: new Date().toISOString(),
-                root: semanticTree
-            };
-
-            fs.writeFileSync(
-                outputPath,
-                JSON.stringify(output, null, 2)
-            );
-
-            console.log(` Processed: ${relativePath}`);
-        } catch (err) {
-            console.error(` Error parsing ${fullPath}`, err);
+            fs.writeFileSync(outputPath,JSON.stringify(semanticTree,null,2));
+            console.log(`Parsed successfully:${relativePath}`)
+        } catch (error) {
+                console.log(`Error parsing: ${error}`)
         }
-    });
-
-    console.log('\n All files processed successfully.');
+    }
 }
 
 export default run;
+
+

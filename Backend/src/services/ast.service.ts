@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { glob } from 'glob';
-import { AstLoader } from './../controllers/astloader.controller'; 
+import { GraphRepo } from '../../db/graph.repo';
 import { ApiError } from '../utils/apiError'; 
 
 interface AstNode {
@@ -11,24 +11,19 @@ interface AstNode {
 }
 
 export class AstService {
-    private loader: AstLoader;
-
-    constructor() {
-        this.loader = new AstLoader();
-    }
 
     async processAstFolder(folderName: string) {
         const searchPath = `./ast_results/${folderName}/**/*.json`;
 
         try {
-            console.log(`📂 [Service] Scanning: ${searchPath}`);
+            console.log(`[Service] Scanning: ${searchPath}`);
             const files = await glob(searchPath);
 
             if (files.length === 0) {
                 throw new ApiError(404, `No .json files found in ${searchPath}`);
             }
 
-            console.log(`🚀 [Service] Found ${files.length} files. Parsing...`);
+            console.log(`[Service] Found ${files.length} files. Parsing...`);
 
             const allNodes: any[] = [];
             const allEdges: any[] = [];
@@ -38,18 +33,18 @@ export class AstService {
                                    .replace(/\.json$/, '')
                                    .replace(/\\/g, '/');
 
-                const content = fs.readFileSync(filePath, 'utf8');
-                
+                                   
                 try {
+                    const content = fs.readFileSync(filePath, 'utf8');
                     const rootNode = JSON.parse(content);
                     this.traverseTree(rootNode, fileId, fileId, allNodes, allEdges);
-                } catch (parseError) {
-                    console.error(`⚠️ [Service] JSON Parse Error: ${filePath}`);
+                } catch (e) {
+                    console.error(` [Service] JSON Parse Error: ${filePath}`);
                     continue; 
                 }
             }
 
-            await this.loader.batchWrite(allNodes, allEdges);
+            await GraphRepo.batchWrite(allNodes, allEdges);
 
         } catch (err: any) {
             if (err instanceof ApiError) throw err;
