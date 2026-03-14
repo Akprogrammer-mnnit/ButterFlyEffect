@@ -17,33 +17,71 @@ export class AstService {
 
         try {
             console.log(`[Service] Scanning: ${searchPath}`);
-            const files = await glob(searchPath);
+            const files = await glob(searchPath.replace(/\\/g, '/'));
 
             if (files.length === 0) {
                 throw new ApiError(404, `No .json files found in ${searchPath}`);
             }
 
-            console.log(`[Service] Found ${files.length} files. Parsing...`);
-
-            const allNodes: any[] = [];
-            const allEdges: any[] = [];
-
+            const uniqueNodes = new Map<string, any>();
+            const uniqueEdges = new Map<string, any>();
+            
+            const fileImports = new Map<string, Map<string, string>>();
+            const fileFunctions = new Map<string, Set<string>>(); 
+            const rawCalls: any[] = [];                                 
+            
+            // --- PASS 1: Extract all Files, Imports, and VALID Named Functions ---
             for (const filePath of files) {
                 const fileId = path.relative(`./ast_results/${folderName}`, filePath)
                                    .replace(/\.json$/, '')
                                    .replace(/\\/g, '/');
 
-                                   
                 try {
                     const content = fs.readFileSync(filePath, 'utf8');
                     const rootNode = JSON.parse(content);
-                    this.traverseTree(rootNode, fileId, fileId, allNodes, allEdges);
+                    this.traverseTree(
+                        rootNode, fileId, fileId, uniqueNodes, uniqueEdges, fileImports, fileFunctions, rawCalls
+                    );
                 } catch (e) {
-                    console.error(` [Service] JSON Parse Error: ${filePath}`);
-                    continue; 
+                    console.error(`[Service] JSON Parse Error: ${filePath}`);
                 }
             }
 
+            // --- PASS 2: Strictly Link Internal/Imported Dependencies ---
+            for (const call of rawCalls) {
+                const { fromContext, fromFileId, calleeText } = call;
+                let targetFuncId: string | null = null;
+
+                const parts = calleeText.split('.');
+                const baseName = parts[0]; 
+                const methodName = parts.length > 1 ? parts[parts.length - 1] : baseName;
+
+                const importsForFile = fileImports.get(fromFileId);
+                
+                if (importsForFile?.has(baseName)) {
+                    const modulePath = importsForFile.get(baseName)!;
+                    targetFuncId = `${modulePath}::${methodName}`;
+                    
+                    if (!uniqueNodes.has(targetFuncId)) {
+                        uniqueNodes.set(targetFuncId, { id: targetFuncId, label: 'Function', name: methodName });
+                    }
+                } 
+                
+                else if (fileFunctions.get(fromFileId)?.has(methodName)) {
+                    targetFuncId = `${fromFileId}::${methodName}`;
+                }
+
+                
+                if (targetFuncId) {
+                    const edgeKey = `${fromContext}-CALLS-${targetFuncId}`;
+                    uniqueEdges.set(edgeKey, { from: fromContext, to: targetFuncId, type: 'CALLS' });
+                }
+            }
+
+            const allNodes = Array.from(uniqueNodes.values());
+            const allEdges = Array.from(uniqueEdges.values());
+
+            console.log(`[Service] Extracted ${allNodes.length} perfectly validated nodes and ${allEdges.length} dependencies.`);
             await GraphRepo.batchWrite(allNodes, allEdges);
 
         } catch (err: any) {
@@ -52,40 +90,118 @@ export class AstService {
         }
     }
 
-    private traverseTree(node: AstNode, fileId: string, parentContext: string, nodes: any[], edges: any[]) {
+    private traverseTree(
+        node: AstNode, 
+        fileId: string, 
+        parentContext: string, 
+        nodes: Map<string, any>, 
+        edges: Map<string, any>,
+        fileImports: Map<string, Map<string, string>>,
+        fileFunctions: Map<string, Set<string>>,
+        rawCalls: any[],
+        assignedName?: string
+    ) {
         
+        // --- 1. REGISTER FILE ---
         if (node.type === 'program' && parentContext === fileId) {
-            nodes.push({ id: fileId, label: 'File', name: fileId });
+            nodes.set(fileId, { id: fileId, label: 'File', name: fileId });
+            if (!fileImports.has(fileId)) fileImports.set(fileId, new Map());
+            if (!fileFunctions.has(fileId)) fileFunctions.set(fileId, new Set());
         }
 
-        if (node.type === 'function_declaration' || node.type === 'arrow_function') {
-            const idNode = node.children?.find(c => c.type === 'identifier');
-            const funcName = idNode?.text || 'anonymous';
-            const funcId = `${fileId}::${funcName}`;
+        let nextAssignedName = assignedName;
 
-            nodes.push({ id: funcId, label: 'Function', name: funcName });
-            edges.push({ from: fileId, to: funcId, type: 'DEFINES' });
-
-            parentContext = funcId; 
+        if (['variable_declarator', 'assignment_expression', 'pair'].includes(node.type)) {
+            const idNode = node.children?.find(c => ['identifier', 'property_identifier'].includes(c.type));
+            if (idNode && idNode.text) nextAssignedName = idNode.text;
         }
 
+        // --- 2. EXTRACT IMPORTS/REQUIRES ---
+        const isImport = ['import_statement', 'import_declaration'].includes(node.type);
+        const isRequire = node.type === 'call_expression' && node.children?.[0]?.text === 'require';
+
+        if (isImport || isRequire) {
+            const stringNode = isRequire 
+                ? node.children?.find(c => c.type === 'arguments')?.children?.find(c => c.type === 'string')
+                : node.children?.find(c => c.type === 'string');
+
+            let modulePathText = stringNode?.text?.replace(/['"]/g, ''); 
+            
+            if (modulePathText) {
+                let resolvedPath = modulePathText;
+                
+                if (resolvedPath.startsWith('.')) {
+                    resolvedPath = path.posix.join(path.dirname(fileId), modulePathText).replace(/\\/g, '/');
+                    if (!/\.[a-z]+$/.test(resolvedPath)) resolvedPath += '.js';
+                }
+
+                const extractIdentifiers = (n: AstNode) => {
+                    if (n.type === 'identifier') {
+                        fileImports.get(fileId)?.set(n.text!, resolvedPath);
+                    }
+                    n.children?.forEach(extractIdentifiers);
+                };
+                
+                if (isImport) {
+                    node.children?.filter(c => c.type !== 'string').forEach(extractIdentifiers);
+                } else if (nextAssignedName) {
+                    fileImports.get(fileId)?.set(nextAssignedName, resolvedPath);
+                }
+
+                nodes.set(resolvedPath, { id: resolvedPath, label: 'File', name: resolvedPath });
+                edges.set(`${fileId}-IMPORTS-${resolvedPath}`, { from: fileId, to: resolvedPath, type: 'IMPORTS' });
+            }
+        }
+
+        let currentContext = parentContext;
+
+        // --- 3. EXTRACT NAMED FUNCTIONS ONLY ---
+        const isFunction = ['function_declaration', 'function_expression', 'arrow_function', 'method_definition'].includes(node.type);
+
+        if (isFunction) {
+            const idNode = node.children?.find(c => ['identifier', 'property_identifier'].includes(c.type));
+            let funcName = idNode?.text || nextAssignedName;
+
+            // ABSOLUTE HARD BLOCK:
+            // Must exist. Cannot be "anonymous". Must be a valid JavaScript variable name.
+            const isValidName = funcName && 
+                                funcName.toLowerCase() !== 'anonymous' && 
+                                funcName.toLowerCase() !== 'undefined' &&
+                                /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(funcName);
+
+            if (isValidName) {
+                const funcId = `${fileId}::${funcName}`;
+
+                nodes.set(funcId, { id: funcId, label: 'Function', name: funcName });
+                edges.set(`${fileId}-DEFINES-${funcId}`, { from: fileId, to: funcId, type: 'DEFINES' });
+                
+                fileFunctions.get(fileId)?.add(funcName);
+                currentContext = funcId;
+            }
+            
+            nextAssignedName = undefined;
+        }
+
+        // --- 4. QUEUE CALLS ---
         if (node.type === 'call_expression') {
-            const callee = node.children?.find(c => 
-                c.type === 'member_expression' || c.type === 'identifier'
-            );
-
-            if (callee && callee.text) {
-                const targetName = callee.text; 
-                const targetId = `Service::${targetName}`; 
-
-                nodes.push({ id: targetId, label: 'Service', name: targetName });
-                edges.push({ from: parentContext, to: targetId, type: 'CALLS' });
+            const callee = node.children?.find(c => ['member_expression', 'identifier'].includes(c.type));
+            if (callee && callee.text && callee.text !== 'require') {
+                rawCalls.push({
+                    fromContext: currentContext,
+                    fromFileId: fileId,
+                    calleeText: callee.text
+                });
             }
         }
 
         if (node.children && node.children.length > 0) {
             for (const child of node.children) {
-                this.traverseTree(child, fileId, parentContext, nodes, edges);
+                const shouldPassName = ['variable_declarator', 'assignment_expression', 'pair', 'parenthesized_expression', 'expression_statement'].includes(node.type);
+                
+                this.traverseTree(
+                    child, fileId, currentContext, nodes, edges, fileImports, fileFunctions, rawCalls, 
+                    shouldPassName ? nextAssignedName : undefined
+                );
             }
         }
     }
