@@ -4,6 +4,18 @@ export class GraphRepo {
     static async batchWrite(nodes: any[], edges: any[]) {
         const session = driver.session();
 
+        // Delete all File, Function, and Service nodes and their relationships before inserting new ones
+        try {
+            await session.run(`
+                MATCH (n)
+                WHERE any(label IN labels(n) WHERE label IN ['File', 'Function', 'Service'])
+                DETACH DELETE n
+            `);
+            console.log('Cleared old nodes and relationships.');
+        } catch (e) {
+            console.error('Error clearing old nodes:', e);
+        }
+
         const activeLabels = ['File', 'Function', 'Service'];
         const activeEdgeTypes = ['DEFINES', 'CALLS'];
 
