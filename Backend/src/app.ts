@@ -9,4 +9,7 @@ app.use(express.urlencoded({extended:true}));
 
 import projectRouter from './routes/project.route'
 app.use('/api',projectRouter);
+
+import analysisRouter from './routes/analysis.route';
+app.use('/api', analysisRouter);
 export default app;
