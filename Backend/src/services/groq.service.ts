@@ -129,3 +129,38 @@ function buildPrompt(input: ImpactAnalysisInput): string {
     `;
 }
 
+export async function analyzeImpact(input: ImpactAnalysisInput): Promise<ImpactAnalysisResult> {
+  try {
+    const prompt = buildPrompt(input);
+
+    const completion = await groq.chat.completions.create({
+      model: 'llama-3.3-70b-versatile',
+      messages: [
+        {
+          role: 'system',
+          content: 'You are an expert software engineer and code impact analyst. You always respond with pure valid JSON only — no markdown, no backticks, no explanation.'
+        },
+        {
+          role: 'user',
+          content: prompt
+        }
+      ],
+      temperature: 0.2,
+      max_tokens: 4000,
+    });
+
+    const response = completion.choices[0].message.content!;
+
+    const cleaned = response
+      .replace(/```json/g, '')
+      .replace(/```/g, '')
+      .trim();
+
+    const parsed: ImpactAnalysisResult = JSON.parse(cleaned);
+    return parsed;
+
+  } catch (error: any) {
+    throw new Error(`Groq analysis failed: ${error.message}`);
+  }
+}
+
