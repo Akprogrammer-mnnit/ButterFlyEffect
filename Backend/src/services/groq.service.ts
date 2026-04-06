@@ -31,6 +31,19 @@ export interface ImpactAnalysisInput {
   affected_nodes: AffectedNode[];
 }
 
+export interface ImpactAnalysisResult {
+  risk_level: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+  summary: string;
+  impact_breakdown: {
+    node_name: string;
+    node_type: string;
+    file_path: string;
+    relationship: string;
+    impact: string;
+    may_break: boolean;
+  }[];
+  potential_bugs: string[];
+}
 
 
 
