@@ -12,4 +12,8 @@ app.use('/api',projectRouter);
 
 import analysisRouter from './routes/analysis.route';
 app.use('/api', analysisRouter);
+
+import impactRouter from './routes/impact.route'
+app.use('/api/impact', impactRouter);
+
 export default app;
