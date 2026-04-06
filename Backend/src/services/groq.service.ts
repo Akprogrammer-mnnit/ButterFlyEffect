@@ -26,6 +26,10 @@ export interface ChangedNode {
   new_code: string;
 }
 
+export interface ImpactAnalysisInput {
+  changed_node: ChangedNode;
+  affected_nodes: AffectedNode[];
+}
 
 
 
