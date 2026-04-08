@@ -4,7 +4,8 @@ import {ApiError} from '../utils/apiError'
 import {cloneRepo,deleteTemp} from '../services/git.service'
 import run from "../services/parse.service"
 import { AstService} from '../services/ast.service';
-
+import { parseAndSaveToMongo } from '../services/parseMongo.service';
+import mongoose from 'mongoose';
 export const analyzeRepo = asyncHandler(async(req:Request,res:Response)=>{
     const {gitHubURL} = req.body;
 
@@ -22,6 +23,8 @@ export const analyzeRepo = asyncHandler(async(req:Request,res:Response)=>{
     folderId = cloneResult.folderid;
     console.log(`cloned successfully to: ${tempdir}`);
     await run(folderId);
+    const mockRepoId = new mongoose.Types.ObjectId().toString();
+    await parseAndSaveToMongo(tempdir, mockRepoId);
     const astService = new AstService();
     await astService.processAstFolder(folderId);
     console.log("Done.");

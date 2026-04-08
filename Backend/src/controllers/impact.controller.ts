@@ -3,7 +3,6 @@ import { asyncHandler } from '../utils/asyncHandler';
 import { ImpactService } from '../services/impact.service';
 
 export const getImpactAnalysis = asyncHandler(async (req: Request, res: Response) => {
-    // Expecting JSON: { "targetFunctionIds": ["id1","id2"..] }
     const { targetFunctionIds } = req.body;
 
     const impactService = new ImpactService();
