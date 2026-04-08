@@ -2,11 +2,14 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { glob } from 'glob';
 import { GraphRepo } from '../../db/graph.repo';
-import { ApiError } from '../utils/apiError'; 
+import { ApiError } from '../utils/apiError';
 
+// Added startRow and endRow to the interface so TypeScript understands them
 interface AstNode {
     type: string;
     text?: string;
+    startRow?: number;
+    endRow?: number;
     children?: AstNode[];
 }
 
@@ -25,16 +28,16 @@ export class AstService {
 
             const uniqueNodes = new Map<string, any>();
             const uniqueEdges = new Map<string, any>();
-            
+
             const fileImports = new Map<string, Map<string, string>>();
-            const fileFunctions = new Map<string, Set<string>>(); 
-            const rawCalls: any[] = [];                                 
-            
+            const fileFunctions = new Map<string, Set<string>>();
+            const rawCalls: any[] = [];
+
             // --- PASS 1: Extract all Files, Imports, and VALID Named Functions ---
             for (const filePath of files) {
                 const fileId = path.relative(`./ast_results/${folderName}`, filePath)
-                                   .replace(/\.json$/, '')
-                                   .replace(/\\/g, '/');
+                    .replace(/\.json$/, '')
+                    .replace(/\\/g, '/');
 
                 try {
                     const content = fs.readFileSync(filePath, 'utf8');
@@ -53,25 +56,25 @@ export class AstService {
                 let targetFuncId: string | null = null;
 
                 const parts = calleeText.split('.');
-                const baseName = parts[0]; 
+                const baseName = parts[0];
                 const methodName = parts.length > 1 ? parts[parts.length - 1] : baseName;
 
                 const importsForFile = fileImports.get(fromFileId);
-                
+
                 if (importsForFile?.has(baseName)) {
                     const modulePath = importsForFile.get(baseName)!;
                     targetFuncId = `${modulePath}::${methodName}`;
-                    
+
                     if (!uniqueNodes.has(targetFuncId)) {
                         uniqueNodes.set(targetFuncId, { id: targetFuncId, label: 'Function', name: methodName });
                     }
-                } 
-                
+                }
+
                 else if (fileFunctions.get(fromFileId)?.has(methodName)) {
                     targetFuncId = `${fromFileId}::${methodName}`;
                 }
 
-                
+
                 if (targetFuncId) {
                     const edgeKey = `${fromContext}-CALLS-${targetFuncId}`;
                     uniqueEdges.set(edgeKey, { from: fromContext, to: targetFuncId, type: 'CALLS' });
@@ -91,17 +94,17 @@ export class AstService {
     }
 
     private traverseTree(
-        node: AstNode, 
-        fileId: string, 
-        parentContext: string, 
-        nodes: Map<string, any>, 
+        node: AstNode,
+        fileId: string,
+        parentContext: string,
+        nodes: Map<string, any>,
         edges: Map<string, any>,
         fileImports: Map<string, Map<string, string>>,
         fileFunctions: Map<string, Set<string>>,
         rawCalls: any[],
         assignedName?: string
     ) {
-        
+
         // --- 1. REGISTER FILE ---
         if (node.type === 'program' && parentContext === fileId) {
             nodes.set(fileId, { id: fileId, label: 'File', name: fileId });
@@ -121,15 +124,15 @@ export class AstService {
         const isRequire = node.type === 'call_expression' && node.children?.[0]?.text === 'require';
 
         if (isImport || isRequire) {
-            const stringNode = isRequire 
+            const stringNode = isRequire
                 ? node.children?.find(c => c.type === 'arguments')?.children?.find(c => c.type === 'string')
                 : node.children?.find(c => c.type === 'string');
 
-            let modulePathText = stringNode?.text?.replace(/['"]/g, ''); 
-            
+            let modulePathText = stringNode?.text?.replace(/['"]/g, '');
+
             if (modulePathText) {
                 let resolvedPath = modulePathText;
-                
+
                 if (resolvedPath.startsWith('.')) {
                     resolvedPath = path.posix.join(path.dirname(fileId), modulePathText).replace(/\\/g, '/');
                     if (!/\.[a-z]+$/.test(resolvedPath)) resolvedPath += '.js';
@@ -141,7 +144,7 @@ export class AstService {
                     }
                     n.children?.forEach(extractIdentifiers);
                 };
-                
+
                 if (isImport) {
                     node.children?.filter(c => c.type !== 'string').forEach(extractIdentifiers);
                 } else if (nextAssignedName) {
@@ -164,21 +167,30 @@ export class AstService {
 
             // ABSOLUTE HARD BLOCK:
             // Must exist. Cannot be "anonymous". Must be a valid JavaScript variable name.
-            const isValidName = funcName && 
-                                funcName.toLowerCase() !== 'anonymous' && 
-                                funcName.toLowerCase() !== 'undefined' &&
-                                /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(funcName);
+            const isValidName = funcName &&
+                funcName.toLowerCase() !== 'anonymous' &&
+                funcName.toLowerCase() !== 'undefined' &&
+                /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(funcName);
 
             if (isValidName) {
                 const funcId = `${fileId}::${funcName}`;
 
-                nodes.set(funcId, { id: funcId, label: 'Function', name: funcName });
+                // TODO: Store node.text (the actual code) in MongoDB or flat files using `funcId` as the key.
+
+                nodes.set(funcId, {
+                    id: funcId,
+                    label: 'Function',
+                    name: funcName,
+                    startLine: node.startRow,
+                    endLine: node.endRow
+                });
+
                 edges.set(`${fileId}-DEFINES-${funcId}`, { from: fileId, to: funcId, type: 'DEFINES' });
-                
+
                 fileFunctions.get(fileId)?.add(funcName);
                 currentContext = funcId;
             }
-            
+
             nextAssignedName = undefined;
         }
 
@@ -197,12 +209,13 @@ export class AstService {
         if (node.children && node.children.length > 0) {
             for (const child of node.children) {
                 const shouldPassName = ['variable_declarator', 'assignment_expression', 'pair', 'parenthesized_expression', 'expression_statement'].includes(node.type);
-                
+
                 this.traverseTree(
-                    child, fileId, currentContext, nodes, edges, fileImports, fileFunctions, rawCalls, 
+                    child, fileId, currentContext, nodes, edges, fileImports, fileFunctions, rawCalls,
                     shouldPassName ? nextAssignedName : undefined
                 );
             }
         }
+
     }
 }

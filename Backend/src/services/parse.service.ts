@@ -11,7 +11,7 @@ const IGNORED_FOLDERS = ['node_modules', '.git', 'build', '__pycache__', '.venv'
 const LANG_MAP: Record<string, any> = {
     '.js': JavaScript,
     '.jsx': JavaScript,
-    '.ts': JavaScript, 
+    '.ts': JavaScript,
     '.py': Python,
     '.cpp': Cpp,
     '.c': C,
@@ -43,12 +43,12 @@ function getAllFiles(dirPath: string, files: string[] = []): string[] {
                     files.push(fullpath);
                 }
             }
-        } catch (e) {}
+        } catch (e) { }
     }
     return files;
 }
 
-function serializeSemanticNode(node: any, sourceCode: string): any {
+function serializeSemanticNode(node: any, sourceCode: string) {
     const children: any[] = [];
     for (let i = 0; i < node.childCount; i++) {
         const child = node.child(i);
@@ -57,14 +57,25 @@ function serializeSemanticNode(node: any, sourceCode: string): any {
         }
     }
 
+    // ADD function_declaration and arrow_function to the list
+
+
     const shouldCaptureText = [
-        'identifier', 'string', 'property_identifier', 'type_identifier', 
-        'field_identifier', 'member_expression', 'string_fragment'
+        'identifier', 'string', 'property_identifier', 'type_identifier',
+        'field_identifier', 'function_declarator',
+        'function_declaration', 'arrow_function'
     ].includes(node.type);
+
 
     return {
         type: node.type,
-        text: shouldCaptureText ? sourceCode.substring(node.startIndex, node.endIndex) : undefined,
+        // ADD THESE TWO LINES:
+        startRow: node.startPosition.row,
+        endRow: node.endPosition.row,
+
+        text: shouldCaptureText
+            ? sourceCode.substring(node.startIndex, node.endIndex)
+            : undefined,
         children
     };
 }
@@ -88,7 +99,7 @@ async function run(folderId: string) {
             const ext = path.extname(fullPath).toLowerCase();
             const selectedLang = LANG_MAP[ext];
             if (!selectedLang) continue;
-            
+
             parser.setLanguage(selectedLang);
             const sourceCode = fs.readFileSync(fullPath, 'utf8');
             const tree = parser.parse(sourceCode);
@@ -96,13 +107,14 @@ async function run(folderId: string) {
 
             const relativePath = path.relative(FINAL_INPUT_DIR, fullPath).replace(/\\/g, '/');
             const outputPath = path.join(FINAL_OUTPUT_DIR, relativePath + '.json');
-            
+
             const outputDir = path.dirname(outputPath);
             if (!fs.existsSync(outputDir)) {
                 fs.mkdirSync(outputDir, { recursive: true });
             }
 
             fs.writeFileSync(outputPath, JSON.stringify(semanticTree, null, 2));
+
             console.log(`Parsed successfully: ${relativePath}`);
         } catch (error) {
             console.log(`Error parsing ${fullPath}: ${error}`);

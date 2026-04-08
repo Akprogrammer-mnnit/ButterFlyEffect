@@ -27,10 +27,12 @@ export class GraphRepo {
 
                 if (batch.length > 0) {
                     await session.run(`
-                        UNWIND $batch AS node
-                        MERGE (n:${label} {id: node.id})
-                        SET n.name = node.name
-                    `, { batch });
+            UNWIND $batch AS node
+            MERGE (n:${label} {id: node.id})
+            SET n.name = node.name,
+                n.startLine = node.startLine,
+                n.endLine = node.endLine
+        `, { batch });
                 }
             }
 

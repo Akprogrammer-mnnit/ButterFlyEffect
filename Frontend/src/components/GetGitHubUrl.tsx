@@ -7,12 +7,12 @@ interface ApiResponse {
     }
 }
 function GetGitHubUrl() {
-    const [url , setUrl] = useState<string>("")
+    const [url, setUrl] = useState<string>("")
     const [loading, setLoading] = useState<boolean>(false)
-    const [message,setMessage] = useState<string>("")
-    const [error,setError] = useState<string>("")
+    const [message, setMessage] = useState<string>("")
+    const [error, setError] = useState<string>("")
 
-    const handleSubmit = async(e: React.FormEvent<HTMLFormElement>) => {
+    const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
         e.preventDefault()
         setLoading(true)
         setMessage("")
@@ -41,7 +41,7 @@ function GetGitHubUrl() {
     }
 
     return (
-        <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-900 to-black px-4">
+        <div className="min-h-screen flex items-center justify-center bg-linear-to-br from-gray-900 to-black px-4">
             <form
                 onSubmit={handleSubmit}
                 className="w-full max-w-md bg-gray-900/80 backdrop-blur rounded-2xl shadow-xl p-6 space-y-4 border border-gray-800"
