@@ -35,7 +35,7 @@ async function walkDirectory(currentDir: string, baseDir: string, fileList: Node
       await walkDirectory(fullPath, baseDir, fileList);
     } else {
       const stat = await fs.stat(fullPath);
-      
+
       if (stat.size > 1024 * 1024) continue;
 
       const buffer = await fs.readFile(fullPath);
@@ -57,7 +57,7 @@ async function walkDirectory(currentDir: string, baseDir: string, fileList: Node
 export const processAndStoreRepo = async (tempFolderPath: string, repoId: mongoose.Types.ObjectId | string): Promise<boolean> => {
   try {
     const nodes = await walkDirectory(tempFolderPath, tempFolderPath);
-    
+
     const dbNodes = nodes.map(node => ({ ...node, repoId }));
 
     await RepoNode.deleteMany({ repoId });
@@ -67,7 +67,7 @@ export const processAndStoreRepo = async (tempFolderPath: string, repoId: mongoo
       const batch = dbNodes.slice(i, i + BATCH_SIZE);
       await RepoNode.insertMany(batch);
     }
-    
+
     return true;
   } catch (error) {
     console.error('Error parsing repo:', error);
