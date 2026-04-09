@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
-import { generateCompleteImpactReport } from '../services/generate.service';
-import { asyncHandler } from '../utils/asyncHandler';
-import { ApiError } from '../utils/apiError';
+import { generateCompleteImpactReport } from '../services/generate.service.js';
+import { asyncHandler } from '../utils/asyncHandler.js';
+import { ApiError } from '../utils/apiError.js';
 
 export const getImpactAnalysis = asyncHandler(async (req: Request, res: Response) => {
   const neo4jPayload = req.body;
@@ -10,11 +10,11 @@ export const getImpactAnalysis = asyncHandler(async (req: Request, res: Response
     throw new ApiError(400, "Invalid Neo4j payload format provided in request body.");
   }
 
-  const completeData = await generateCompleteImpactReport(neo4jPayload);
+  const completeData = await generateCompleteImpactReport(neo4jPayload, "");
 
   res.status(200).json(completeData);
 });
-import { analyzeImpact, ImpactAnalysisInput } from '../services/groq.service';
+import { analyzeImpact, ImpactAnalysisInput } from '../services/groq.service.js';
 
 export const analyzeCodeImpact = async (req: Request, res: Response): Promise<void> => {
   try {

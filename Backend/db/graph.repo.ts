@@ -1,4 +1,4 @@
-import driver from "./index";
+import driver from "./index.js";
 
 export class GraphRepo {
     static async batchWrite(nodes: any[], edges: any[]) {

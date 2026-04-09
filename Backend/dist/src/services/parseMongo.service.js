@@ -1,49 +1,54 @@
+var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
+    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
+    return new (P || (P = Promise))(function (resolve, reject) {
+        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
+        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
+        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
+        step((generator = generator.apply(thisArg, _arguments || [])).next());
+    });
+};
 import fs from 'fs';
 import path from 'path';
 import Parser from 'tree-sitter';
 import JavaScript from 'tree-sitter-javascript';
 import Python from 'tree-sitter-python';
 import AstNode from '../models/AstNode.js';
-
 const parser = new Parser();
-
 // Configure languages
-const LANG_MAP: Record<string, any> = {
+const LANG_MAP = {
     '.js': JavaScript,
     '.jsx': JavaScript,
     '.ts': JavaScript,
     '.py': Python,
 };
-
 const IGNORED_FOLDERS = ['node_modules', '.git', 'build', 'dist'];
-
 // Helper to find all files
-function getAllFiles(dirPath: string, files: string[] = []): string[] {
+function getAllFiles(dirPath, files = []) {
     const entries = fs.readdirSync(dirPath);
     for (const entry of entries) {
-        if (IGNORED_FOLDERS.includes(entry)) continue;
+        if (IGNORED_FOLDERS.includes(entry))
+            continue;
         const fullpath = path.join(dirPath, entry);
         if (fs.statSync(fullpath).isDirectory()) {
             getAllFiles(fullpath, files);
-        } else {
+        }
+        else {
             const ext = path.extname(entry).toLowerCase();
-            if (LANG_MAP[ext]) files.push(fullpath);
+            if (LANG_MAP[ext])
+                files.push(fullpath);
         }
     }
     return files;
 }
-
 // NEW: Recursive AST Traversal to extract individual functions
-function extractNodesFromAST(rootNode: any, sourceCode: string, relativePath: string, repoId: string) {
-    const extractedNodes: any[] = [];
-
-    function walkAST(node: any) {
+function extractNodesFromAST(rootNode, sourceCode, relativePath, repoId) {
+    const extractedNodes = [];
+    function walkAST(node) {
         // 1. Look for standard functions (e.g., function set(key, value) { ... })
         if (node.type === 'function_declaration' || node.type === 'method_definition') {
             // Find the name of the function
-            const nameNode = node.children.find((c: any) => c.type === 'identifier' || c.type === 'property_identifier');
+            const nameNode = node.children.find((c) => c.type === 'identifier' || c.type === 'property_identifier');
             const funcName = nameNode ? sourceCode.substring(nameNode.startIndex, nameNode.endIndex) : 'anonymous';
-
             extractedNodes.push({
                 id: `${relativePath}::${funcName}`, // Matches Neo4j ID! e.g., 'backend/db.js::set'
                 repoId: repoId,
@@ -57,9 +62,8 @@ function extractNodesFromAST(rootNode: any, sourceCode: string, relativePath: st
         }
         // 2. Look for arrow functions (e.g., const set = (key, value) => { ... })
         else if (node.type === 'variable_declarator') {
-            const nameNode = node.children.find((c: any) => c.type === 'identifier');
-            const arrowFuncNode = node.children.find((c: any) => c.type === 'arrow_function');
-
+            const nameNode = node.children.find((c) => c.type === 'identifier');
+            const arrowFuncNode = node.children.find((c) => c.type === 'arrow_function');
             if (nameNode && arrowFuncNode) {
                 const funcName = sourceCode.substring(nameNode.startIndex, nameNode.endIndex);
                 extractedNodes.push({
@@ -74,16 +78,13 @@ function extractNodesFromAST(rootNode: any, sourceCode: string, relativePath: st
                 });
             }
         }
-
         // Recurse through all children
         for (let i = 0; i < node.childCount; i++) {
             walkAST(node.child(i));
         }
     }
-
     // Start the recursive walk
     walkAST(rootNode);
-
     // 3. ALSO save the entire file itself so Neo4j can reference "backend/server.js" as a 'File' type
     extractedNodes.push({
         id: relativePath, // Standard file ID
@@ -95,41 +96,34 @@ function extractNodesFromAST(rootNode: any, sourceCode: string, relativePath: st
         end_line: sourceCode.split('\n').length,
         code: sourceCode
     });
-
     return extractedNodes;
 }
-
-
 // Main Function
-export const parseAndSaveToMongo = async (tempFolderPath: string, repoId: string) => {
+export const parseAndSaveToMongo = (tempFolderPath, repoId) => __awaiter(void 0, void 0, void 0, function* () {
     console.log(`\n--- 🕵️ PARSER: Extracting Functions ---`);
-    if (!fs.existsSync(tempFolderPath)) return;
-
+    if (!fs.existsSync(tempFolderPath))
+        return;
     const sourceFiles = getAllFiles(tempFolderPath);
-    let allNodesToSave: any[] = [];
-
+    let allNodesToSave = [];
     // Parse files and extract functions
     for (const fullPath of sourceFiles) {
         const ext = path.extname(fullPath).toLowerCase();
         parser.setLanguage(LANG_MAP[ext]);
-
         const sourceCode = fs.readFileSync(fullPath, 'utf8');
         const tree = parser.parse(sourceCode);
         const relativePath = path.relative(tempFolderPath, fullPath).replace(/\\/g, '/');
-
         // Extract functions and the file itself
         const fileNodes = extractNodesFromAST(tree.rootNode, sourceCode, relativePath, repoId);
         allNodesToSave = allNodesToSave.concat(fileNodes);
     }
-
     console.log(`Extracted ${allNodesToSave.length} total nodes (Files + Functions).`);
-
     // Save to MongoDB
     try {
-        await AstNode.deleteMany({ repoId }); // Clear old data
-        const saved = await AstNode.insertMany(allNodesToSave);
+        yield AstNode.deleteMany({ repoId }); // Clear old data
+        const saved = yield AstNode.insertMany(allNodesToSave);
         console.log(`SUCCESS: Saved ${saved.length} nodes to MongoDB!`);
-    } catch (error) {
+    }
+    catch (error) {
         console.error("MONGODB SAVE ERROR:", error);
     }
-};
+});

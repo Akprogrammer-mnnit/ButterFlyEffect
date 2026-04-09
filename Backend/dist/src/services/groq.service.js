@@ -1,56 +1,21 @@
+var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
+    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
+    return new (P || (P = Promise))(function (resolve, reject) {
+        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
+        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
+        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
+        step((generator = generator.apply(thisArg, _arguments || [])).next());
+    });
+};
 import Groq from 'groq-sdk';
 import dotenv from 'dotenv';
 dotenv.config();
-
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
-
-export interface AffectedNode {
-  id: string;
-  name: string;
-  type: 'function' | 'class' | 'variable' | string;
-  file_path: string;
-  start_line: number;
-  end_line: number;
-  code: string;
-  relationship: string;
-}
-
-export interface ChangedNode {
-  id: string;
-  name: string;
-  type: 'function' | 'class' | 'variable' | string;
-  file_path: string;
-  start_line: number;
-  end_line: number;
-  old_code: string;
-  new_code: string;
-}
-
-export interface ImpactAnalysisInput {
-  changed_node: ChangedNode;
-  affected_nodes: AffectedNode[];
-}
-
-export interface ImpactAnalysisResult {
-  risk_level: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
-  summary: string;
-  impact_breakdown: {
-    node_name: string;
-    node_type: string;
-    file_path: string;
-    relationship: string;
-    impact: string;
-    may_break: boolean;
-  }[];
-  potential_bugs: string[];
-}
-
-function buildPrompt(input: ImpactAnalysisInput): string {
-  const { changed_node, affected_nodes } = input;
-
-  const affectedNodesText = affected_nodes
-    .map((node, index) => {
-      return `
+function buildPrompt(input) {
+    const { changed_node, affected_nodes } = input;
+    const affectedNodesText = affected_nodes
+        .map((node, index) => {
+        return `
     ### Affected Node ${index + 1}
     - **Name:** ${node.name}
     - **Type:** ${node.type}
@@ -62,12 +27,12 @@ function buildPrompt(input: ImpactAnalysisInput): string {
     \`\`\`
     `;
     })
-    .join('\n---\n');
-
-  return `
+        .join('\n---\n');
+    return `
     You are an expert software engineer and code impact analyst. Your job is to deeply analyze a code change and determine its ripple effects across a codebase using graph-based dependency data.
       
     ---
+      
     ## CHANGED NODE (The code that was modified)
     - **Name:** ${changed_node.name}
     - **Type:** ${changed_node.type}
@@ -127,39 +92,35 @@ function buildPrompt(input: ImpactAnalysisInput): string {
     7. Return ONLY the JSON object — no markdown, no backticks, no explanation before or after
     `;
 }
-
-export async function analyzeImpact(input: ImpactAnalysisInput): Promise<ImpactAnalysisResult> {
-  try {
-    const prompt = buildPrompt(input);
-
-    const completion = await groq.chat.completions.create({
-      model: 'llama-3.3-70b-versatile',
-      messages: [
-        {
-          role: 'system',
-          content: 'You are an expert software engineer and code impact analyst. You always respond with pure valid JSON only — no markdown, no backticks, no explanation.'
-        },
-        {
-          role: 'user',
-          content: prompt
+export function analyzeImpact(input) {
+    return __awaiter(this, void 0, void 0, function* () {
+        try {
+            const prompt = buildPrompt(input);
+            const completion = yield groq.chat.completions.create({
+                model: 'llama-3.3-70b-versatile',
+                messages: [
+                    {
+                        role: 'system',
+                        content: 'You are an expert software engineer and code impact analyst. You always respond with pure valid JSON only — no markdown, no backticks, no explanation.'
+                    },
+                    {
+                        role: 'user',
+                        content: prompt
+                    }
+                ],
+                temperature: 0.2,
+                max_tokens: 4000,
+            });
+            const response = completion.choices[0].message.content;
+            const cleaned = response
+                .replace(/```json/g, '')
+                .replace(/```/g, '')
+                .trim();
+            const parsed = JSON.parse(cleaned);
+            return parsed;
         }
-      ],
-      temperature: 0.2,
-      max_tokens: 4000,
+        catch (error) {
+            throw new Error(`Groq analysis failed: ${error.message}`);
+        }
     });
-
-    const response = completion.choices[0].message.content!;
-
-    const cleaned = response
-      .replace(/```json/g, '')
-      .replace(/```/g, '')
-      .trim();
-
-    const parsed: ImpactAnalysisResult = JSON.parse(cleaned);
-    return parsed;
-
-  } catch (error: any) {
-    throw new Error(`Groq analysis failed: ${error.message}`);
-  }
 }
-

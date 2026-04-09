@@ -1,8 +1,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { glob } from 'glob';
-import { GraphRepo } from '../../db/graph.repo';
-import { ApiError } from '../utils/apiError';
+import { GraphRepo } from '../../db/graph.repo.js';
+import { ApiError } from '../utils/apiError.js';
 
 // Added startRow and endRow to the interface so TypeScript understands them
 interface AstNode {

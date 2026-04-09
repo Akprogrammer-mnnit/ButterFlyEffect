@@ -1,5 +1,5 @@
 import mongoose from 'mongoose';
-import AstNode from '../models/AstNode';
+import AstNode from '../models/AstNode.js';
 
 export const saveAstNodesToMongo = async (repoId: mongoose.Types.ObjectId | string, extractedNodes: any[]) => {
     try {
@@ -12,7 +12,7 @@ export const saveAstNodesToMongo = async (repoId: mongoose.Types.ObjectId | stri
             repoId: repoId,
             name: node.name,
             type: node.label || node.type, // Handle depending on how you named it for Neo4j
-            file_path: node.file_path || "unknown", 
+            file_path: node.file_path || "unknown",
             start_line: node.start_line || 0,
             end_line: node.end_line || 0,
             code: node.code || "Code not available"

@@ -2,7 +2,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { isBinary } from 'istextorbinary';
 import mongoose from 'mongoose';
-import RepoNode from '../models/RepoNode';
+import RepoNode from '../models/RepoNode.js';
 
 const IGNORED_FOLDERS = new Set(['node_modules', '.git', 'build', 'dist', '__pycache__', '.venv', 'env']);
 

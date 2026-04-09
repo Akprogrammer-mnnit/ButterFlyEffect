@@ -1,4 +1,4 @@
-import driver from "./index";
+import driver from "./index.js";
 
 export interface DependencyResult {
     id: string;
@@ -10,7 +10,7 @@ export interface DependencyResult {
 export class ImpactRepo {
     static async findBlastRadius(targetFunctionIds: string[], maxDepth: number = 5): Promise<DependencyResult[]> {
         const session = driver.session();
-        
+
         try {
             const query = `
                 MATCH p = (caller)-[:CALLS*1..${maxDepth}]->(target:Function)
@@ -22,13 +22,13 @@ export class ImpactRepo {
                     min(length(p)) AS depth
                 ORDER BY depth ASC
             `;
-            
+
             const result = await session.run(query, { targetFunctionIds });
 
             const dependencies: DependencyResult[] = result.records.map(record => {
                 const labels = record.get('callerLabels') as string[];
                 let type: DependencyResult['type'] = 'Unknown';
-                
+
                 if (labels.includes('Function')) type = 'Function';
                 else if (labels.includes('File')) type = 'File';
 
