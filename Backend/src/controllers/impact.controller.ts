@@ -13,9 +13,15 @@ export const getImpactAnalysis = asyncHandler(async (req: Request, res: Response
 
     const report = await analyzeImpact(codes);
     console.log("Report: ", report);
+
     return res.status(200).json({
         success: true,
-        message: "Graph dependencies retrieved successfully",
-        data: result
+        message: "Impact analysis complete",
+        data: {
+            totalDependencies: result.totalDependencies,
+            graphData: result,
+            aiReport: report
+        }
     });
+
 });
