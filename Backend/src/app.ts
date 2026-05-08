@@ -6,7 +6,7 @@ import repoRoutes from './routes/repo.route.js';
 // Mount the routes so the frontend can access them
 const app: Application = express();
 
-app.use(cors());
+app.use(cors({ origin: process.env.CORS_ORIGIN, credentials: true }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
