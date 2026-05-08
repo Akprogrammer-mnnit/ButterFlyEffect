@@ -2,6 +2,7 @@
   "name": "butterfly-effect",
   "displayName": "butterfly-effect",
   "description": "AI-powered blast radius analysis for code changes",
+  "publisher": "ak-mnnit",
   "version": "0.0.1",
   "engines": {
     "vscode": "^1.110.0"
@@ -18,6 +19,18 @@
   ],
   "main": "./dist/extension.js",
   "contributes": {
+    "contributes": {
+      "configuration": {
+        "title": "Butterfly Effect",
+        "properties": {
+          "butterfly.backendUrl": {
+            "type": "string",
+            "default": "http://localhost:5555",
+            "description": "The URL of deployed Butterfly backend"
+          }
+        }
+      }
+    },
     "commands": [
       {
         "command": "butterfly.analyzeFunction",

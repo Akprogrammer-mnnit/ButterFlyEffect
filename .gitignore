@@ -3,3 +3,6 @@ node_modules/
 .env.*
 ast_results/
 temp/
+Extension/dist/
+Extension/dist/extension.js.LICENSE.txt
+Extension/*.vsix

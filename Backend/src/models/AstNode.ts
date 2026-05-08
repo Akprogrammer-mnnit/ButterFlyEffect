@@ -1,18 +1,18 @@
 import mongoose, { Document, Schema } from 'mongoose';
 
 export interface IAstNode extends Document {
-  id: string;         
+  id: string;
   repoId: mongoose.Types.ObjectId;
   name: string;
-  type: string;      
+  type: string;
   file_path: string;
   start_line: number;
   end_line: number;
-  code: string;       
+  code: string;
 }
 
 const astNodeSchema: Schema = new Schema({
-  id: { type: String, required: true, unique: true }, 
+  id: { type: String, required: true },
   repoId: { type: Schema.Types.ObjectId, required: true },
   name: { type: String, required: true },
   type: { type: String, required: true },
@@ -22,6 +22,6 @@ const astNodeSchema: Schema = new Schema({
   code: { type: String, required: true }
 });
 
-astNodeSchema.index({ id: 1 });
+astNodeSchema.index({ repoId: 1, id: 1 });
 
 export default mongoose.model<IAstNode>('AstNode', astNodeSchema);

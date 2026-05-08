@@ -10,7 +10,7 @@ function getChangedLines(filePath: string, workspacePath: string): number[] {
 
 		let match;
 		while ((match = diffRegex.exec(diff)) !== null) {
-			const startLine = parseInt(match[1], 10) - 1; // 0-indexed for VS Code
+			const startLine = parseInt(match[1], 10) - 1;
 			const lineCount = match[2] ? parseInt(match[2], 10) : 1;
 
 			for (let i = 0; i < lineCount; i++) {
@@ -94,11 +94,12 @@ export function activate(context: vscode.ExtensionContext) {
 				title: "Analyzing blast radius...",
 				cancellable: false
 			}, async (progress) => {
-				// Replace your existing try block inside activate() with this:
 				try {
 					console.log(`Analyzing impact for ${functionId}...`);
 
-					const response = await axios.post('http://localhost:5555/api/impact/analyze', {
+					const config = vscode.workspace.getConfiguration('butterfly');
+					const backendUrl = config.get('backendUrl', 'http://localhost:5555');
+					const response = await axios.post(`${backendUrl}/api/impact/analyze`, {
 						targetFunctionIds: [functionId],
 						code: functionCode
 					});
@@ -124,7 +125,6 @@ export function activate(context: vscode.ExtensionContext) {
 }
 
 
-// --- 4. Webview Panel Generator ---
 class ImpactReportPanel {
 	public static currentPanel: ImpactReportPanel | undefined;
 	private readonly _panel: vscode.WebviewPanel;
@@ -135,18 +135,16 @@ class ImpactReportPanel {
 			? vscode.window.activeTextEditor.viewColumn
 			: undefined;
 
-		// If we already have a panel open, show it and update it
 		if (ImpactReportPanel.currentPanel) {
 			ImpactReportPanel.currentPanel._panel.reveal(column);
 			ImpactReportPanel.currentPanel.update(reportData, functionId);
 			return;
 		}
 
-		// Otherwise, create a new panel (a new tab)
 		const panel = vscode.window.createWebviewPanel(
 			'impactReport',
 			'🦋 Blast Radius Report',
-			column || vscode.ViewColumn.Beside, // Opens in a split pane next to their code!
+			column || vscode.ViewColumn.Beside,
 			{ enableScripts: true }
 		);
 
@@ -175,13 +173,11 @@ class ImpactReportPanel {
 	private _getHtmlForWebview(data: any, functionId: string) {
 		const ai = data.aiReport;
 
-		// Color code the risk level
-		let riskColor = "var(--vscode-testing-iconPassed)"; // Green
-		if (ai.risk_level === 'MEDIUM') riskColor = "var(--vscode-testing-iconQueued)"; // Yellow
-		if (ai.risk_level === 'HIGH') riskColor = "var(--vscode-testing-iconFailed)"; // Red
-		if (ai.risk_level === 'CRITICAL') riskColor = "var(--vscode-errorForeground)"; // Bright Red
+		let riskColor = "var(--vscode-testing-iconPassed)";
+		if (ai.risk_level === 'MEDIUM') riskColor = "var(--vscode-testing-iconQueued)";
+		if (ai.risk_level === 'HIGH') riskColor = "var(--vscode-testing-iconFailed)";
+		if (ai.risk_level === 'CRITICAL') riskColor = "var(--vscode-errorForeground)";
 
-		// Generate HTML for the Impact Breakdown
 		const breakdownHtml = ai.impact_breakdown.map((item: any) => `
 			<div class="card">
 				<div class="card-header">
@@ -195,7 +191,6 @@ class ImpactReportPanel {
 			</div>
 		`).join('');
 
-		// Generate HTML for Potential Bugs
 		const bugsHtml = ai.potential_bugs.map((bug: string) => `
 			<li class="bug-item">🐞 ${bug}</li>
 		`).join('');
