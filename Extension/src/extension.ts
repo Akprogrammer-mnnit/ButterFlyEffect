@@ -1,15 +1,26 @@
 import * as vscode from 'vscode';
 import * as cp from 'child_process';
 import axios from 'axios';
+import * as util from 'util';
 
-function getChangedLines(filePath: string, workspacePath: string): number[] {
+function escapeHtml(unsafe: string): string {
+	if (!unsafe) return "";
+	return unsafe.toString()
+		.replace(/&/g, "&amp;")
+		.replace(/</g, "&lt;")
+		.replace(/>/g, "&gt;")
+		.replace(/"/g, "&quot;")
+		.replace(/'/g, "&#039;");
+}
+const execAsync = util.promisify(cp.exec);
+async function getChangedLines(filePath: string, workspacePath: string): Promise<number[]> {
 	try {
-		const diff = cp.execSync(`git diff -U0 HEAD -- "${filePath}"`, { cwd: workspacePath }).toString();
+		const { stdout } = await execAsync(`git diff -U0 HEAD -- "${filePath}"`, { cwd: workspacePath });
 		const changedLines: number[] = [];
 		const diffRegex = /@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/g;
 
 		let match;
-		while ((match = diffRegex.exec(diff)) !== null) {
+		while ((match = diffRegex.exec(stdout)) !== null) {
 			const startLine = parseInt(match[1], 10) - 1;
 			const lineCount = match[2] ? parseInt(match[2], 10) : 1;
 
@@ -42,7 +53,7 @@ class ImpactCodeLensProvider implements vscode.CodeLensProvider {
 		let relativePath = vscode.workspace.asRelativePath(document.uri, false);
 		relativePath = relativePath.replace(/\\/g, '/');
 
-		const changedLines = getChangedLines(document.uri.fsPath, workspaceFolder.uri.fsPath);
+		const changedLines = await getChangedLines(document.uri.fsPath, workspaceFolder.uri.fsPath);
 		if (changedLines.length === 0) return [];
 
 		const symbols: vscode.DocumentSymbol[] | undefined = await vscode.commands.executeCommand(
@@ -98,8 +109,9 @@ export function activate(context: vscode.ExtensionContext) {
 					console.log(`Analyzing impact for ${functionId}...`);
 
 					const config = vscode.workspace.getConfiguration('butterfly');
-					const backendUrl = config.get('backendUrl', 'http://localhost:5555');
-					const response = await axios.post(`${backendUrl}/api/impact/analyze`, {
+					const backendUrl = config.get('backendUrl', 'https://butterflyeffect.onrender.com');
+					const local = 'http://localhost:5555';
+					const response = await axios.post(`${local}/api/impact/analyze`, {
 						targetFunctionIds: [functionId],
 						code: functionCode
 					});
@@ -179,20 +191,20 @@ class ImpactReportPanel {
 		if (ai.risk_level === 'CRITICAL') riskColor = "var(--vscode-errorForeground)";
 
 		const breakdownHtml = ai.impact_breakdown.map((item: any) => `
-			<div class="card">
-				<div class="card-header">
-					<span class="node-name">${item.node_name}</span>
-					<span class="badge ${item.may_break ? 'badge-danger' : 'badge-warning'}">
-						${item.may_break ? '⚠️ Will Break' : '⚠️ Warning'}
-					</span>
-				</div>
-				<div class="meta-info">📁 ${item.file_path} | 🔗 ${item.relationship}</div>
-				<p class="impact-text">${item.impact}</p>
+		<div class="card">
+			<div class="card-header">
+				<span class="node-name">${escapeHtml(item.node_name)}</span>
+				<span class="badge ${item.may_break ? 'badge-danger' : 'badge-warning'}">
+					${item.may_break ? 'Will Break' : 'Warning'}
+				</span>
 			</div>
+			<div class="meta-info">${escapeHtml(item.file_path)} | ${escapeHtml(item.relationship)}</div>
+			<p class="impact-text">${escapeHtml(item.impact)}</p>
+		</div>
 		`).join('');
 
 		const bugsHtml = ai.potential_bugs.map((bug: string) => `
-			<li class="bug-item">🐞 ${bug}</li>
+			<li class="bug-item">${escapeHtml(bug)}</li>
 		`).join('');
 
 		return `<!DOCTYPE html>

@@ -5,8 +5,8 @@ import { cloneRepo, deleteTemp } from '../services/git.service.js'
 import run from "../services/parse.service.js"
 import { AstService } from '../services/ast.service.js';
 import { parseAndSaveToMongo } from '../services/parseMongo.service.js';
-import mongoose from 'mongoose';
 import { v4 as uuidv4 } from 'uuid';
+
 export const analyzeRepo = asyncHandler(async (req: Request, res: Response) => {
     const { gitHubURL } = req.body;
 
@@ -14,8 +14,8 @@ export const analyzeRepo = asyncHandler(async (req: Request, res: Response) => {
         throw new ApiError(404, "Repo not found");
     }
 
-    let tempdir = ""
-    let folderId = ""
+    let tempdir = "";
+    let folderId = "";
 
     const cloneResult = await cloneRepo(gitHubURL);
     if (!cloneResult) throw new ApiError(404, "could not clone the repo")
@@ -24,13 +24,25 @@ export const analyzeRepo = asyncHandler(async (req: Request, res: Response) => {
     folderId = cloneResult.folderid;
     const uniqueRepoId = uuidv4();
     console.log(`cloned successfully to: ${tempdir}`);
-    await run(folderId);
-    const mockRepoId = new mongoose.Types.ObjectId().toString();
-    await parseAndSaveToMongo(tempdir, mockRepoId);
-    const astService = new AstService();
-    await astService.processAstFolder(folderId, uniqueRepoId);
-    console.log("Done.");
-    return res.status(200).json(
-        { message: "Successfully uploaded", success: true, repoId: uniqueRepoId }
-    )
+
+    try {
+        await run(folderId);
+        await parseAndSaveToMongo(tempdir, uniqueRepoId);
+        const astService = new AstService();
+        await astService.processAstFolder(folderId, uniqueRepoId);
+
+        console.log("Analysis Done.");
+
+        return res.status(200).json({
+            message: "Successfully uploaded",
+            success: true,
+            repoId: uniqueRepoId
+        });
+
+    } finally {
+        if (tempdir) {
+            deleteTemp(tempdir);
+            console.log(`Cleaned up temporary directory: ${tempdir}`);
+        }
+    }
 });

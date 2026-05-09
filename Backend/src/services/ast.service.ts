@@ -83,9 +83,8 @@ export class AstService {
             for (const mNode of mongoNodes) {
                 if (mNode.start_line !== undefined && mNode.end_line !== undefined) {
                     try {
-                        // CRITICAL: Point this to where your ORIGINAL source code is stored, NOT the ast_results!
-                        // For example, if you download repos to a 'temp_repos' folder:
-                        const originalSourcePath = `./temp/${folderName}/${mNode.file_path}`;
+
+                        const originalSourcePath = path.join(process.cwd(), 'temp', folderName, mNode.file_path);
 
                         if (fs.existsSync(originalSourcePath)) {
                             const fileContent = fs.readFileSync(originalSourcePath, 'utf8');
