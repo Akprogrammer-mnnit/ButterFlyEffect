@@ -9,7 +9,7 @@ router.get('/:repoId/files', async (req: Request, res: Response) => {
 
     const nodes = await RepoNode.find(
       { repoId: req.params.repoId, parentPath },
-      { content: 0 } // Optimization: do not return text content for tree view
+      { content: 0 }
     ).sort({ type: 1, name: 1 });
 
     res.status(200).json(nodes);
@@ -18,7 +18,7 @@ router.get('/:repoId/files', async (req: Request, res: Response) => {
   }
 });
 
-// 2. Get specific file content
+
 router.get('/:repoId/file-content', async (req: Request, res: Response): Promise<any> => {
   try {
     const filePath = req.query.filePath as string;
@@ -41,7 +41,6 @@ router.get('/:repoId/file-content', async (req: Request, res: Response): Promise
   }
 });
 
-// 3. Search for a keyword/function across the repository
 router.get('/:repoId/search', async (req: Request, res: Response): Promise<any> => {
   try {
     const query = req.query.query as string;
@@ -52,7 +51,7 @@ router.get('/:repoId/search', async (req: Request, res: Response): Promise<any> 
 
     const results = await RepoNode.find(
       { repoId: req.params.repoId, $text: { $search: query } },
-      { score: { $meta: 'textScore' }, content: 0 } // Exclude full content, include relevancy score
+      { score: { $meta: 'textScore' }, content: 0 }
     )
       .sort({ score: { $meta: 'textScore' } })
       .limit(50);

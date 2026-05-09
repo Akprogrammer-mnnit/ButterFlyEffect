@@ -8,17 +8,17 @@ export const saveAstNodesToMongo = async (repoId: mongoose.Types.ObjectId | stri
         await AstNode.deleteMany({ repoId });
 
         const dbNodes = extractedNodes.map(node => ({
-            id: node.id,                 // e.g., 'src/cart.ts::calculateTotal'
+            id: node.id,
             repoId: repoId,
             name: node.name,
-            type: node.label || node.type, // Handle depending on how you named it for Neo4j
+            type: node.label || node.type,
             file_path: node.file_path || "unknown",
             start_line: node.start_line || 0,
             end_line: node.end_line || 0,
             code: node.code || "Code not available"
         }));
 
-        const BATCH_SIZE = 1000;
+        const BATCH_SIZE = 25;
         for (let i = 0; i < dbNodes.length; i += BATCH_SIZE) {
             await AstNode.insertMany(dbNodes.slice(i, i + BATCH_SIZE));
         }

@@ -1,16 +1,16 @@
 import driver from "./index.js";
 
 export class GraphRepo {
-    static async batchWrite(nodes: any[], edges: any[]) {
+    static async batchWrite(nodes: any[], edges: any[], repoId: string) {
         const session = driver.session();
 
-        // Delete all File, Function, and Service nodes and their relationships before inserting new ones
+        const tx = session.beginTransaction();
         try {
-            await session.run(`
+            await tx.run(`
                 MATCH (n)
-                WHERE any(label IN labels(n) WHERE label IN ['File', 'Function', 'Service'])
+                WHERE n.repoId = $repoId AND any(label IN labels(n) WHERE label IN ['File', 'Function', 'Service'])
                 DETACH DELETE n
-            `);
+            `, { repoId });
             console.log('Cleared old nodes and relationships.');
         } catch (e) {
             console.error('Error clearing old nodes:', e);
@@ -26,13 +26,13 @@ export class GraphRepo {
                 const batch = nodes.filter(n => n.label === label);
 
                 if (batch.length > 0) {
-                    await session.run(`
-            UNWIND $batch AS node
-            MERGE (n:${label} {id: node.id})
-            SET n.name = node.name,
-                n.startLine = node.startLine,
-                n.endLine = node.endLine
-        `, { batch });
+                    await tx.run(`
+                        UNWIND $batch AS node
+                        MERGE (n:${label} {id: node.id, repoId: $repoId})
+                        SET n.name = node.name,
+                            n.startLine = node.startLine,
+                            n.endLine = node.endLine
+                    `, { batch, repoId });
                 }
             }
 
@@ -40,19 +40,21 @@ export class GraphRepo {
                 const batch = edges.filter(e => e.type === type);
 
                 if (batch.length > 0) {
-                    await session.run(`
+                    await tx.run(`
                         UNWIND $batch AS edge
-                        MATCH (source {id: edge.from})
-                        MATCH (target {id: edge.to})
+                        MATCH (source {id: edge.from, repoId: $repoId})
+                        MATCH (target {id: edge.to, repoId: $repoId})
                         MERGE (source)-[:${type}]->(target)
-                    `, { batch });
+                    `, { batch, repoId });
                 }
             }
 
-            console.log("Batch write complete..");
+            await tx.commit();
+            console.log("Batch write complete and committed.");
 
         } catch (e: any) {
             console.error(`batchWrite failed: ${e}`);
+            await tx.rollback();
         } finally {
             await session.close();
         }

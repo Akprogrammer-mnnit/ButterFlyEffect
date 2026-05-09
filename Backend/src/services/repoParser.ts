@@ -62,7 +62,7 @@ export const processAndStoreRepo = async (tempFolderPath: string, repoId: mongoo
 
     await RepoNode.deleteMany({ repoId });
 
-    const BATCH_SIZE = 1000;
+    const BATCH_SIZE = 25;
     for (let i = 0; i < dbNodes.length; i += BATCH_SIZE) {
       const batch = dbNodes.slice(i, i + BATCH_SIZE);
       await RepoNode.insertMany(batch);

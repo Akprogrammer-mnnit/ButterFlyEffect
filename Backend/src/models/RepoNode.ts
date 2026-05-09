@@ -13,13 +13,13 @@ export interface IRepoNode extends Document {
 }
 
 const repoNodeSchema: Schema = new Schema({
-  repoId: { type: Schema.Types.ObjectId, ref: 'Repository', required: true },
+  repoId: { type: String, required: true },
   type: { type: String, enum: ['file', 'folder'], required: true },
   name: { type: String, required: true },
   path: { type: String, required: true },
   parentPath: { type: String, required: true },
   size: { type: Number, default: 0 },
-  content: { type: String, default: null } // Null for folders
+  content: { type: String, select: false, default: null }
 }, { timestamps: true });
 
 repoNodeSchema.index({ repoId: 1, path: 1 }, { unique: true });

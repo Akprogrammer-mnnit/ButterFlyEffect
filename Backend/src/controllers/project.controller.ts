@@ -6,6 +6,7 @@ import run from "../services/parse.service.js"
 import { AstService } from '../services/ast.service.js';
 import { parseAndSaveToMongo } from '../services/parseMongo.service.js';
 import mongoose from 'mongoose';
+import { v4 as uuidv4 } from 'uuid';
 export const analyzeRepo = asyncHandler(async (req: Request, res: Response) => {
     const { gitHubURL } = req.body;
 
@@ -21,14 +22,15 @@ export const analyzeRepo = asyncHandler(async (req: Request, res: Response) => {
 
     tempdir = cloneResult.tempdir;
     folderId = cloneResult.folderid;
+    const uniqueRepoId = uuidv4();
     console.log(`cloned successfully to: ${tempdir}`);
     await run(folderId);
     const mockRepoId = new mongoose.Types.ObjectId().toString();
     await parseAndSaveToMongo(tempdir, mockRepoId);
     const astService = new AstService();
-    await astService.processAstFolder(folderId);
+    await astService.processAstFolder(folderId, uniqueRepoId);
     console.log("Done.");
     return res.status(200).json(
-        { message: "successfully uploaded the folder" }
+        { message: "Successfully uploaded", success: true, repoId: uniqueRepoId }
     )
 });

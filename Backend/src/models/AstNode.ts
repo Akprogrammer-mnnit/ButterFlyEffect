@@ -13,7 +13,7 @@ export interface IAstNode extends Document {
 
 const astNodeSchema: Schema = new Schema({
   id: { type: String, required: true },
-  repoId: { type: Schema.Types.ObjectId, required: true },
+  repoId: { type: String, required: true },
   name: { type: String, required: true },
   type: { type: String, required: true },
   file_path: { type: String, required: true },
