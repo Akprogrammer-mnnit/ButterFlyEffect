@@ -1,71 +1,97 @@
 import AstNode from '../models/AstNode.js';
-import { ChangedNode } from './groq.service.js';
-export const generateCompleteImpactReport = async (neo4jPayload: any, newCode: any) => {
-    // 1. Extract the main target ID and all dependency IDs
+import RepoNode from '../models/RepoNode.js'; // 👈 CRITICAL: We must import RepoNode
+import { ChangedNode, AffectedNode } from './groq.service.js';
+
+export const generateCompleteImpactReport = async (neo4jPayload: any, newCode: any, repoId: string) => {
     const targetIds = neo4jPayload.analyzedTargets || [];
-    const dependencies = neo4jPayload.dependencies || [];
+    const rawDependencies = neo4jPayload.dependencies || [];
+
+    const dependencies = rawDependencies.filter((dep: any) => !targetIds.includes(dep.id));
     const dependencyIds = dependencies.map((dep: any) => dep.id);
     const allIdsToFetch = [...targetIds, ...dependencyIds];
 
-    // 2. Fetch ALL matching nodes from MongoDB in one query
-    // .lean() converts Mongoose documents to plain JavaScript objects
-    const dbNodes = await AstNode.find({ id: { $in: allIdsToFetch } }).select('-__v').lean();
+    const dbAstNodes = await AstNode.find({
+        id: { $in: allIdsToFetch },
+        repoId: repoId
+    }).select('-__v').lean();
 
-    // 3. Create a Map for instant lookups by ID
+
+    const dbRepoNodes = await RepoNode.find({
+        path: { $in: allIdsToFetch },
+        repoId: repoId
+    }).select('+content -__v').lean();
+
     const nodeMap = new Map();
-    dbNodes.forEach(node => nodeMap.set(node.id, node));
 
-    // 4. Format the main target node
+    dbAstNodes.forEach(node => {
+        nodeMap.set(node.id, node);
+    });
+
+    dbRepoNodes.forEach(node => {
+        nodeMap.set(node.path, {
+            id: node.path,
+            name: node.name,
+            type: 'file',
+            file_path: node.path,
+            start_line: 1,
+            end_line: node.content ? node.content.split('\n').length : 1,
+            code: node.content || '// Content missing in database'
+        });
+    });
+
     const mainTargetId = targetIds[0];
     const dbTarget = nodeMap.get(mainTargetId);
 
-    let changed_node: ChangedNode;
+    const changed_node: ChangedNode = dbTarget ? {
+        id: dbTarget.id,
+        name: dbTarget.name,
+        type: dbTarget.type,
+        file_path: dbTarget.file_path,
+        start_line: dbTarget.start_line,
+        end_line: dbTarget.end_line,
+        old_code: dbTarget.code,
+        new_code: newCode
+    } : {
+        id: mainTargetId,
+        name: mainTargetId.split('::').pop() || mainTargetId,
+        type: 'external',
+        file_path: mainTargetId,
+        start_line: 0, end_line: 0,
+        old_code: '// Target not found in MongoDB',
+        new_code: newCode || '// No new code'
+    };
 
-    if (dbTarget) {
-        changed_node = {
-            id: dbTarget.id,
-            name: dbTarget.name,
-            type: dbTarget.type,
-            file_path: dbTarget.file_path,
-            start_line: dbTarget.start_line,
-            end_line: dbTarget.end_line,
-            old_code: dbTarget.code,
-            new_code: newCode
-        };
-    } else {
-        // Fallback for external/core modules that satisfies the ChangedNode interface
-        changed_node = {
-            id: mainTargetId,
-            name: mainTargetId.split('::').pop() || mainTargetId, // Attempts to get a readable name
-            type: 'external',
-            file_path: 'external/core-module',
-            start_line: 0,
-            end_line: 0,
-            old_code: '// External or core module not found in local repository.',
-            new_code: newCode || '// No new code provided.'
-        };
-    }
-
-    // 5. Format the affected nodes
-    const affected_nodes = dependencies.map((neoNode: any) => {
+    const affected_nodes: AffectedNode[] = dependencies.map((neoNode: any) => {
         const dbNode = nodeMap.get(neoNode.id);
 
-        // If the code isn't in MongoDB, skip it
-        if (!dbNode) return null;
-
-        // Combine the MongoDB data with the Neo4j data (like depth)
-        // We strip _id and repoId here if you want to keep the output clean
-        const { _id, repoId, ...cleanDbNode } = dbNode;
+        if (!dbNode) {
+            // console.log(`🚨 [STILL MISSING] Neo4j ID: "${neoNode.id}" not found in AstNode OR RepoNode!`);
+            return {
+                id: neoNode.id,
+                name: neoNode.id.split('/').pop() || neoNode.id,
+                type: 'file_or_external',
+                file_path: neoNode.id,
+                start_line: 1, end_line: 1,
+                code: '// AST Code unavailable. Graph knows it exists, but DB query failed.',
+                relationship: neoNode.relationship || neoNode.type || 'DEPENDS_ON'
+            };
+        }
 
         return {
-            ...cleanDbNode,      // Adds id, name, type, file_path, start_line, end_line, code
-            depth: neoNode.depth // Keeps the depth info from Neo4j
+            id: dbNode.id,
+            name: dbNode.name || 'unknown',
+            type: dbNode.type || 'unknown',
+            file_path: dbNode.file_path || neoNode.id,
+            start_line: dbNode.start_line || 1,
+            end_line: dbNode.end_line || 1,
+            code: dbNode.code,
+            relationship: neoNode.relationship || neoNode.type || 'DEPENDS_ON'
         };
-    }).filter(Boolean); // Clean out any nulls
+    });
 
-    // 6. Return the final structured object
     return {
         changed_node,
-        affected_nodes
+        affected_nodes,
+        actualDependencyCount: affected_nodes.length
     };
 };

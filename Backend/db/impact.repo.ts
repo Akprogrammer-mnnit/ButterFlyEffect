@@ -8,22 +8,22 @@ export interface DependencyResult {
 }
 
 export class ImpactRepo {
-    static async findBlastRadius(targetFunctionIds: string[], maxDepth: number = 5): Promise<DependencyResult[]> {
+    static async findBlastRadius(targetFunctionIds: string[], repoId: string, maxDepth: number = 5): Promise<DependencyResult[]> {
         const session = driver.session();
 
         try {
             const query = `
-                MATCH p = (caller)-[:CALLS*1..${maxDepth}]->(target:Function)
+                MATCH p = (caller {repoId: $repoId})-[:CALLS*1..${maxDepth}]->(target:Function {repoId: $repoId})
                 WHERE target.id IN $targetFunctionIds
                 RETURN 
                     caller.id AS callerId, 
                     caller.name AS callerName, 
-                    labels(caller) AS callerLabels,
+                    labels(caller) AS callerLabels, 
                     min(length(p)) AS depth
                 ORDER BY depth ASC
             `;
 
-            const result = await session.run(query, { targetFunctionIds });
+            const result = await session.run(query, { targetFunctionIds, repoId });
 
             const dependencies: DependencyResult[] = result.records.map(record => {
                 const labels = record.get('callerLabels') as string[];
@@ -32,7 +32,7 @@ export class ImpactRepo {
                 if (labels.includes('Function')) type = 'Function';
                 else if (labels.includes('File')) type = 'File';
 
-                // We handle neo4j integers safely
+
                 const depth = record.get('depth').toNumber ? record.get('depth').toNumber() : record.get('depth');
 
                 return {
@@ -43,7 +43,7 @@ export class ImpactRepo {
                 };
             });
 
-            // Deduplicate by ID (in case multiple paths found the same caller)
+
             const uniqueDeps = Array.from(new Map(dependencies.map(item => [item.id, item])).values());
 
             return uniqueDeps;

@@ -3,6 +3,7 @@ import mongoose, { Document, Schema } from 'mongoose';
 export interface IRepository extends Document {
   url: string;
   name: string;
+  repoId: string;
   status: 'pending' | 'synced' | 'failed';
   createdAt: Date;
   updatedAt: Date;
@@ -11,6 +12,7 @@ export interface IRepository extends Document {
 const repositorySchema: Schema = new Schema({
   url: { type: String, required: true, unique: true },
   name: { type: String, required: true },
+  repoId: { type: String, required: true, unique: true },
   status: { type: String, enum: ['pending', 'synced', 'failed'], default: 'pending' },
 }, { timestamps: true });
 

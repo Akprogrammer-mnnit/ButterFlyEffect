@@ -6,7 +6,7 @@ import run from "../services/parse.service.js"
 import { AstService } from '../services/ast.service.js';
 import { parseAndSaveToMongo } from '../services/parseMongo.service.js';
 import { v4 as uuidv4 } from 'uuid';
-
+import Repository from '../models/Repository.js';
 export const analyzeRepo = asyncHandler(async (req: Request, res: Response) => {
     const { gitHubURL } = req.body;
 
@@ -26,6 +26,12 @@ export const analyzeRepo = asyncHandler(async (req: Request, res: Response) => {
     console.log(`cloned successfully to: ${tempdir}`);
 
     try {
+        const repoName = gitHubURL.split('/').pop() || 'Unknown Repo';
+        await Repository.findOneAndUpdate(
+            { url: gitHubURL },
+            { name: repoName, repoId: uniqueRepoId, status: 'synced' },
+            { upsert: true, new: true }
+        );
         await run(folderId);
         await parseAndSaveToMongo(tempdir, uniqueRepoId);
         const astService = new AstService();

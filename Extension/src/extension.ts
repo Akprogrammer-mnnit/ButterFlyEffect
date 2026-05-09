@@ -12,6 +12,22 @@ function escapeHtml(unsafe: string): string {
 		.replace(/"/g, "&quot;")
 		.replace(/'/g, "&#039;");
 }
+async function getGitOriginUrl(workspacePath: string): Promise<string | null> {
+	try {
+		const { stdout } = await execAsync(`git config --get remote.origin.url`, { cwd: workspacePath });
+		let url = stdout.trim();
+		if (url.startsWith('git@github.com:')) {
+			url = url.replace('git@github.com:', 'https://github.com/');
+		}
+		if (url.endsWith('.git')) {
+			url = url.slice(0, -4);
+		}
+
+		return url;
+	} catch (e) {
+		return null;
+	}
+}
 const execAsync = util.promisify(cp.exec);
 async function getChangedLines(filePath: string, workspacePath: string): Promise<number[]> {
 	try {
@@ -106,14 +122,19 @@ export function activate(context: vscode.ExtensionContext) {
 				cancellable: false
 			}, async (progress) => {
 				try {
-					console.log(`Analyzing impact for ${functionId}...`);
+					const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+					if (!workspaceFolder) throw new Error("No workspace folder found.");
+
+					const gitUrl = await getGitOriginUrl(workspaceFolder.uri.fsPath);
 
 					const config = vscode.workspace.getConfiguration('butterfly');
-					const backendUrl = config.get('backendUrl', 'https://butterflyeffect.onrender.com');
+					const backendUrl = config.get('backendUrl', 'http://localhost:5555');
 					const local = 'http://localhost:5555';
+
 					const response = await axios.post(`${local}/api/impact/analyze`, {
 						targetFunctionIds: [functionId],
-						code: functionCode
+						code: functionCode,
+						gitUrl: gitUrl
 					});
 
 					const data = response.data.data;
@@ -122,12 +143,14 @@ export function activate(context: vscode.ExtensionContext) {
 						vscode.window.showInformationMessage(`✅ Safe to commit! No dependencies found for ${functionId}.`);
 					} else {
 						vscode.window.showWarningMessage(`⚠️ This change affects ${data.totalDependencies} functions! Opening detailed report...`);
-
 						ImpactReportPanel.createOrShow(data, functionId);
 					}
-				} catch (error) {
-					vscode.window.showErrorMessage(`Failed to analyze impact. Is your backend running?`);
-					console.error(error);
+				} catch (error: any) {
+					if (error.response && error.response.status === 404) {
+						vscode.window.showErrorMessage(`⚠️ Repository not indexed! Please upload this project to the ButterflyEffect dashboard first.`);
+					} else {
+						vscode.window.showErrorMessage(`Failed to analyze impact. Is your backend running?`);
+					}
 				}
 			});
 		}
