@@ -26,6 +26,14 @@ export class AstService {
                 throw new ApiError(404, `No .json files found in ${searchPath}`);
             }
 
+            const validFileIds = new Set<string>();
+            for (const filePath of files) {
+                const fileId = path.relative(`./ast_results/${folderName}`, filePath)
+                    .replace(/\.json$/, '')
+                    .replace(/\\/g, '/');
+                validFileIds.add(fileId);
+            }
+
             const uniqueNodes = new Map<string, any>();
             const uniqueEdges = new Map<string, any>();
 
@@ -43,7 +51,7 @@ export class AstService {
                     const content = fs.readFileSync(filePath, 'utf8');
                     const rootNode = JSON.parse(content);
                     this.traverseTree(
-                        rootNode, fileId, fileId, uniqueNodes, uniqueEdges, fileImports, fileFunctions, rawCalls, mongoNodes
+                        rootNode, fileId, fileId, uniqueNodes, uniqueEdges, fileImports, fileFunctions, rawCalls, mongoNodes, validFileIds
                     );
                 } catch (e) {
                     console.error(`[Service] JSON Parse Error: ${filePath}`);
@@ -122,6 +130,7 @@ export class AstService {
         fileFunctions: Map<string, Set<string>>,
         rawCalls: any[],
         mongoNodes: any[],
+        validFileIds: Set<string>,
         assignedName?: string
     ) {
 
@@ -153,7 +162,21 @@ export class AstService {
 
                 if (resolvedPath.startsWith('.')) {
                     resolvedPath = path.posix.join(path.dirname(fileId), modulePathText).replace(/\\/g, '/');
-                    if (!/\.[a-z]+$/.test(resolvedPath)) resolvedPath += '.js';
+                    if (!validFileIds.has(resolvedPath)) {
+                        if (resolvedPath.endsWith('.js')) {
+                            const tsPath = resolvedPath.replace(/\.js$/, '.ts');
+                            const tsxPath = resolvedPath.replace(/\.js$/, '.tsx');
+
+                            if (validFileIds.has(tsPath)) resolvedPath = tsPath;
+                            else if (validFileIds.has(tsxPath)) resolvedPath = tsxPath;
+                        } else if (!/\.[a-z]+$/.test(resolvedPath)) {
+                            if (validFileIds.has(`${resolvedPath}.ts`)) resolvedPath += '.ts';
+                            else if (validFileIds.has(`${resolvedPath}.tsx`)) resolvedPath += '.tsx';
+                            else if (validFileIds.has(`${resolvedPath}.js`)) resolvedPath += '.js';
+                            else if (validFileIds.has(`${resolvedPath}/index.ts`)) resolvedPath += '/index.ts';
+                            else if (validFileIds.has(`${resolvedPath}/index.js`)) resolvedPath += '/index.js';
+                        }
+                    }
                 }
 
                 const extractIdentifiers = (n: AstNode) => {
@@ -234,6 +257,7 @@ export class AstService {
 
                 this.traverseTree(
                     child, fileId, currentContext, nodes, edges, fileImports, fileFunctions, rawCalls, mongoNodes,
+                    validFileIds,
                     shouldPassName ? nextAssignedName : undefined
                 );
             }
