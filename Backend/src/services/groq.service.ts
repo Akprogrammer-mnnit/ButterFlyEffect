@@ -4,6 +4,7 @@ dotenv.config();
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
+
 export interface AffectedNode {
   id: string;
   name: string;
@@ -34,6 +35,7 @@ export interface ImpactAnalysisInput {
 export interface ImpactAnalysisResult {
   risk_level: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
   summary: string;
+  direct_issues: string[];
   impact_breakdown: {
     node_name: string;
     node_type: string;
@@ -94,13 +96,16 @@ function buildPrompt(input: ImpactAnalysisInput): string {
       
     ## YOUR TASK
       
-    Carefully compare the BEFORE and AFTER code of **${changed_node.name}** and analyze the exact diff — what logic changed, what parameters changed, what return values changed. Then determine the ripple effect on all ${affected_nodes.length} affected nodes. Be extremely precise, technical, and actionable.
+    Carefully compare the BEFORE and AFTER code of **${changed_node.name}**. 
       
     Respond ONLY in the following JSON format with no additional text, no markdown backticks, no preamble:
       
     {
       "risk_level": "LOW | MEDIUM | HIGH | CRITICAL",
       "summary": "One concise paragraph summarizing exactly what changed and the overall impact on dependent nodes",
+      "direct_issues": [
+        "Description of any syntax error, vulnerability, or logic flaw found DIRECTLY in the changed code/global variable itself"
+      ],
       "impact_breakdown": [
         {
           "node_name": "name of the affected node",
@@ -112,19 +117,16 @@ function buildPrompt(input: ImpactAnalysisInput): string {
         }
       ],
       "potential_bugs": [
-        "Specific potential bug or breaking change description 1",
-        "Specific potential bug or breaking change description 2"
+        "Specific potential bug or breaking change description 1 in the dependent code"
       ]
     }
       
     ## RULES FOR YOUR ANALYSIS:
-    1. Always compare old_code vs new_code first — identify the exact diff before analyzing impact
-    2. Be extremely specific — mention exact function names, parameter names, return types
-    3. Do NOT make vague statements like "this might affect performance" — be precise
+    1. CRITICAL FIRST STEP: Look at the "Code AFTER change" (especially if it is a global variable or file-level change). If the change introduces a direct vulnerability, syntax error, or logical flaw IN THE CHANGED NODE ITSELF, list it in "direct_issues".
+    2. THEN, analyze the exact diff — identify what parameters, types, or exports changed.
+    3. FINALLY, determine the ripple effect on the affected nodes. Be precise.
     4. risk_level must be: LOW (cosmetic/no logic change), MEDIUM (logic change with limited scope), HIGH (core logic change affecting multiple nodes), CRITICAL (breaking change that will definitely cause failures)
-    5. may_break must be true if the change in signature, return type, or logic WILL cause errors in the dependent node
-    6. potential_bugs must describe exact failure scenarios with context
-    7. Return ONLY the JSON object — no markdown, no backticks, no explanation before or after
+    5. Return ONLY the JSON object — no markdown, no backticks, no explanation before or after.
     `;
 }
 

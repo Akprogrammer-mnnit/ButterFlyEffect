@@ -174,7 +174,6 @@ export function activate(context: vscode.ExtensionContext) {
 					const config = vscode.workspace.getConfiguration('butterfly');
 					const backendUrl = config.get('backendUrl', 'https://butterflyeffect.onrender.com');
 					const local = 'http://localhost:5555';
-
 					const response = await axios.post(`${local}/api/impact/analyze`, {
 						targetFunctionIds: [functionId],
 						code: functionCode,
@@ -258,6 +257,20 @@ class ImpactReportPanel {
 		if (ai.risk_level === 'HIGH') riskColor = "var(--vscode-testing-iconFailed)";
 		if (ai.risk_level === 'CRITICAL') riskColor = "var(--vscode-errorForeground)";
 
+		let directIssuesHtml = '';
+		if (ai.direct_issues && ai.direct_issues.length > 0) {
+			directIssuesHtml = `
+				<h2>🛑 Errors in Changed Code</h2>
+				<ul class="bug-list">
+					${ai.direct_issues.map((issue: string) => `
+						<li class="bug-item" style="border-left: 4px solid var(--vscode-editorError-foreground);">
+							${escapeHtml(issue)}
+						</li>
+					`).join('')}
+				</ul>
+			`;
+		}
+
 		const breakdownHtml = ai.impact_breakdown.map((item: any) => `
 		<div class="card">
 			<div class="card-header">
@@ -278,7 +291,7 @@ class ImpactReportPanel {
 		return `<!DOCTYPE html>
 			<html lang="en">
 			<head>
-				<meta charset="UTF-8">
+                <meta charset="UTF-8">
 				<meta name="viewport" content="width=device-width, initial-scale=1.0">
 				<title>Impact Analysis</title>
 				<style>
@@ -335,14 +348,16 @@ class ImpactReportPanel {
 				<h1>🦋 Butterfly Effect Analysis</h1>
 				
 				<div class="header-box">
-					<div><strong>Target Function:</strong> <code>${functionId}</code></div>
+					<div><strong>Target:</strong> <code>${functionId}</code></div>
 					<div><strong>Total Dependencies:</strong> ${data.totalDependencies}</div>
 					<div class="risk-badge">RISK LEVEL: ${ai.risk_level}</div>
 					<div class="summary">${ai.summary}</div>
 				</div>
 
+                ${directIssuesHtml}
+
 				${ai.potential_bugs.length > 0 ? `
-					<h2>🚨 Potential Bugs</h2>
+					<h2>🚨 Ripple Effect Bugs</h2>
 					<ul class="bug-list">
 						${bugsHtml}
 					</ul>
