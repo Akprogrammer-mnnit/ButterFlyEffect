@@ -3,7 +3,7 @@
   "displayName": "butterfly-effect",
   "description": "AI-powered blast radius analysis for code changes",
   "publisher": "ak-mnnit",
-  "version": "0.0.3",
+  "version": "1.0.0",
   "engines": {
     "vscode": "^1.110.0"
   },

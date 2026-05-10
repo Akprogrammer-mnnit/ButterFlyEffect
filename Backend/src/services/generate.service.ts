@@ -1,5 +1,4 @@
 import AstNode from '../models/AstNode.js';
-import RepoNode from '../models/RepoNode.js'; // 👈 CRITICAL: We must import RepoNode
 import { ChangedNode, AffectedNode } from './groq.service.js';
 
 export const generateCompleteImpactReport = async (neo4jPayload: any, newCode: any, repoId: string) => {
@@ -8,39 +7,35 @@ export const generateCompleteImpactReport = async (neo4jPayload: any, newCode: a
 
     const dependencies = rawDependencies.filter((dep: any) => !targetIds.includes(dep.id));
     const dependencyIds = dependencies.map((dep: any) => dep.id);
-    const allIdsToFetch = [...targetIds, ...dependencyIds];
+
+    const allIdsToFetch = [...targetIds, ...dependencyIds].flatMap(id => {
+        if (id.includes('.js::')) return [id, id.replace('.js::', '.ts::'), id.replace('.js::', '.tsx::')];
+        if (id.endsWith('.js')) return [id, id.replace(/\.js$/, '.ts'), id.replace(/\.js$/, '.tsx')];
+        return [id];
+    });
 
     const dbAstNodes = await AstNode.find({
         id: { $in: allIdsToFetch },
         repoId: repoId
     }).select('-__v').lean();
 
-
-    const dbRepoNodes = await RepoNode.find({
-        path: { $in: allIdsToFetch },
-        repoId: repoId
-    }).select('+content -__v').lean();
-
     const nodeMap = new Map();
-
     dbAstNodes.forEach(node => {
         nodeMap.set(node.id, node);
-    });
 
-    dbRepoNodes.forEach(node => {
-        nodeMap.set(node.path, {
-            id: node.path,
-            name: node.name,
-            type: 'file',
-            file_path: node.path,
-            start_line: 1,
-            end_line: node.content ? node.content.split('\n').length : 1,
-            code: node.content || '// Content missing in database'
-        });
+        if (node.id.includes('.ts::')) nodeMap.set(node.id.replace('.ts::', '.js::'), node);
+        if (node.id.endsWith('.ts')) nodeMap.set(node.id.replace(/\.ts$/, '.js'), node);
     });
 
     const mainTargetId = targetIds[0];
-    const dbTarget = nodeMap.get(mainTargetId);
+
+    let dbTarget = nodeMap.get(mainTargetId) || nodeMap.get(mainTargetId.replace('.ts', '.js'));
+
+    if (!dbTarget && mainTargetId.includes('::')) {
+        const filePathOnly = mainTargetId.split('::')[0];
+        dbTarget = nodeMap.get(filePathOnly);
+        if (dbTarget) console.log(`[Generate Service] Fell back to file scope for target: ${filePathOnly}`);
+    }
 
     const changed_node: ChangedNode = dbTarget ? {
         id: dbTarget.id,
@@ -65,14 +60,14 @@ export const generateCompleteImpactReport = async (neo4jPayload: any, newCode: a
         const dbNode = nodeMap.get(neoNode.id);
 
         if (!dbNode) {
-            // console.log(`🚨 [STILL MISSING] Neo4j ID: "${neoNode.id}" not found in AstNode OR RepoNode!`);
+            console.log(`🚨 [STILL MISSING] Neo4j ID: "${neoNode.id}"`);
             return {
                 id: neoNode.id,
                 name: neoNode.id.split('/').pop() || neoNode.id,
                 type: 'file_or_external',
                 file_path: neoNode.id,
                 start_line: 1, end_line: 1,
-                code: '// AST Code unavailable. Graph knows it exists, but DB query failed.',
+                code: '// AST Code unavailable. Graph knows it exists, but MongoDB query failed.',
                 relationship: neoNode.relationship || neoNode.type || 'DEPENDS_ON'
             };
         }

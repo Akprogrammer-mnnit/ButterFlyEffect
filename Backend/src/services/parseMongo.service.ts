@@ -7,7 +7,6 @@ import AstNode from '../models/AstNode.js';
 
 const parser = new Parser();
 
-// Configure languages
 const LANG_MAP: Record<string, any> = {
     '.js': JavaScript,
     '.jsx': JavaScript,
@@ -17,7 +16,6 @@ const LANG_MAP: Record<string, any> = {
 
 const IGNORED_FOLDERS = ['node_modules', '.git', 'build', 'dist'];
 
-// Helper to find all files
 function getAllFiles(dirPath: string, files: string[] = []): string[] {
     const entries = fs.readdirSync(dirPath);
     for (const entry of entries) {
@@ -33,74 +31,88 @@ function getAllFiles(dirPath: string, files: string[] = []): string[] {
     return files;
 }
 
-// NEW: Recursive AST Traversal to extract individual functions
 function extractNodesFromAST(rootNode: any, sourceCode: string, relativePath: string, repoId: string) {
     const extractedNodes: any[] = [];
 
     function walkAST(node: any) {
-        // 1. Look for standard functions (e.g., function set(key, value) { ... })
         if (node.type === 'function_declaration' || node.type === 'method_definition') {
-            // Find the name of the function
             const nameNode = node.children.find((c: any) => c.type === 'identifier' || c.type === 'property_identifier');
             const funcName = nameNode ? sourceCode.substring(nameNode.startIndex, nameNode.endIndex) : 'anonymous';
 
-            extractedNodes.push({
-                id: `${relativePath}::${funcName}`, // Matches Neo4j ID! e.g., 'backend/db.js::set'
-                repoId: repoId,
-                name: funcName,
-                type: "Function",
-                file_path: relativePath,
-                start_line: node.startPosition.row + 1,
-                end_line: node.endPosition.row + 1,
-                code: sourceCode.substring(node.startIndex, node.endIndex) // Extracts ONLY the function code
-            });
+            extractedNodes.push(buildNodeObject(funcName, node, relativePath, repoId, sourceCode));
         }
-        // 2. Look for arrow functions (e.g., const set = (key, value) => { ... })
+
         else if (node.type === 'variable_declarator') {
             const nameNode = node.children.find((c: any) => c.type === 'identifier');
-            const arrowFuncNode = node.children.find((c: any) => c.type === 'arrow_function');
+            const funcName = nameNode ? sourceCode.substring(nameNode.startIndex, nameNode.endIndex) : null;
 
-            if (nameNode && arrowFuncNode) {
-                const funcName = sourceCode.substring(nameNode.startIndex, nameNode.endIndex);
-                extractedNodes.push({
-                    id: `${relativePath}::${funcName}`,
-                    repoId: repoId,
-                    name: funcName,
-                    type: "Function",
-                    file_path: relativePath,
-                    start_line: arrowFuncNode.startPosition.row + 1,
-                    end_line: arrowFuncNode.endPosition.row + 1,
-                    code: sourceCode.substring(arrowFuncNode.startIndex, arrowFuncNode.endIndex)
-                });
+            if (funcName) {
+                let targetFuncNode = node.children.find((c: any) => c.type === 'arrow_function' || c.type === 'function_expression');
+
+                if (!targetFuncNode) {
+                    const callExpr = node.children.find((c: any) => c.type === 'call_expression');
+                    if (callExpr) {
+                        const args = callExpr.children.find((c: any) => c.type === 'arguments');
+                        if (args) {
+                            targetFuncNode = args.children.find((c: any) => c.type === 'arrow_function' || c.type === 'function_expression');
+                        }
+                    }
+                }
+
+                if (targetFuncNode) {
+                    extractedNodes.push(buildNodeObject(funcName, targetFuncNode, relativePath, repoId, sourceCode));
+                }
             }
         }
 
-        // Recurse through all children
+        else if (node.type === 'export_statement') {
+            const callExpr = node.children.find((c: any) => c.type === 'call_expression');
+            if (callExpr) {
+                const args = callExpr.children.find((c: any) => c.type === 'arguments');
+                if (args) {
+                    const targetFuncNode = args.children.find((c: any) => c.type === 'arrow_function' || c.type === 'function_expression');
+                    if (targetFuncNode) {
+                        extractedNodes.push(buildNodeObject('defaultExport', targetFuncNode, relativePath, repoId, sourceCode));
+                    }
+                }
+            }
+        }
+
         for (let i = 0; i < node.childCount; i++) {
             walkAST(node.child(i));
         }
     }
 
-    // Start the recursive walk
     walkAST(rootNode);
 
-    // 3. ALSO save the entire file itself so Neo4j can reference "backend/server.js" as a 'File' type
     extractedNodes.push({
-        id: relativePath, // Standard file ID
+        id: relativePath,
         repoId: repoId,
-        name: path.basename(relativePath),
+        name: relativePath.split('/').pop(),
         type: "File",
         file_path: relativePath,
         start_line: 1,
-        end_line: sourceCode.split('\n').length,
-        code: sourceCode
+        end_line: sourceCode.split('\n').length || 1,
+        code: sourceCode || '// Empty file'
     });
 
     return extractedNodes;
 }
 
+function buildNodeObject(funcName: string, astNode: any, relativePath: string, repoId: string, sourceCode: string) {
+    return {
+        id: `${relativePath}::${funcName}`,
+        repoId: repoId,
+        name: funcName,
+        type: "Function",
+        file_path: relativePath,
+        start_line: astNode.startPosition.row + 1,
+        end_line: astNode.endPosition.row + 1,
+        code: sourceCode.substring(astNode.startIndex, astNode.endIndex)
+    };
+}
 
-// Main Function
+
 export const parseAndSaveToMongo = async (tempFolderPath: string, repoId: string) => {
     console.log(`\n--- 🕵️ PARSER: Extracting Functions ---`);
     if (!fs.existsSync(tempFolderPath)) return;
@@ -108,7 +120,6 @@ export const parseAndSaveToMongo = async (tempFolderPath: string, repoId: string
     const sourceFiles = getAllFiles(tempFolderPath);
     let allNodesToSave: any[] = [];
 
-    // Parse files and extract functions
     for (const fullPath of sourceFiles) {
         const ext = path.extname(fullPath).toLowerCase();
         parser.setLanguage(LANG_MAP[ext]);
@@ -117,19 +128,88 @@ export const parseAndSaveToMongo = async (tempFolderPath: string, repoId: string
         const tree = parser.parse(sourceCode);
         const relativePath = path.relative(tempFolderPath, fullPath).replace(/\\/g, '/');
 
-        // Extract functions and the file itself
         const fileNodes = extractNodesFromAST(tree.rootNode, sourceCode, relativePath, repoId);
         allNodesToSave = allNodesToSave.concat(fileNodes);
     }
 
-    console.log(`Extracted ${allNodesToSave.length} total nodes (Files + Functions).`);
+    function extractNodesFromAST(rootNode: any, sourceCode: string, relativePath: string, repoId: string) {
+        const extractedNodes: any[] = [];
 
-    // Save to MongoDB
-    try {
-        await AstNode.deleteMany({ repoId }); // Clear old data
-        const saved = await AstNode.insertMany(allNodesToSave);
-        console.log(`SUCCESS: Saved ${saved.length} nodes to MongoDB!`);
-    } catch (error) {
-        console.error("MONGODB SAVE ERROR:", error);
+        function walkAST(node: any) {
+            if (node.type === 'function_declaration' || node.type === 'method_definition') {
+                const nameNode = node.children.find((c: any) => c.type === 'identifier' || c.type === 'property_identifier');
+                const funcName = nameNode ? sourceCode.substring(nameNode.startIndex, nameNode.endIndex) : 'anonymous';
+
+                extractedNodes.push(buildNodeObject(funcName, node, relativePath, repoId, sourceCode));
+            }
+
+            else if (node.type === 'variable_declarator') {
+                const nameNode = node.children.find((c: any) => c.type === 'identifier');
+                const funcName = nameNode ? sourceCode.substring(nameNode.startIndex, nameNode.endIndex) : null;
+
+                if (funcName) {
+                    let targetFuncNode = node.children.find((c: any) => c.type === 'arrow_function' || c.type === 'function_expression');
+
+                    if (!targetFuncNode) {
+                        const callExpr = node.children.find((c: any) => c.type === 'call_expression');
+                        if (callExpr) {
+                            const args = callExpr.children.find((c: any) => c.type === 'arguments');
+                            if (args) {
+                                targetFuncNode = args.children.find((c: any) => c.type === 'arrow_function' || c.type === 'function_expression');
+                            }
+                        }
+                    }
+
+                    if (targetFuncNode) {
+                        extractedNodes.push(buildNodeObject(funcName, targetFuncNode, relativePath, repoId, sourceCode));
+                    }
+                }
+            }
+
+            else if (node.type === 'export_statement') {
+                const callExpr = node.children.find((c: any) => c.type === 'call_expression');
+                if (callExpr) {
+                    const args = callExpr.children.find((c: any) => c.type === 'arguments');
+                    if (args) {
+                        const targetFuncNode = args.children.find((c: any) => c.type === 'arrow_function' || c.type === 'function_expression');
+                        if (targetFuncNode) {
+                            extractedNodes.push(buildNodeObject('defaultExport', targetFuncNode, relativePath, repoId, sourceCode));
+                        }
+                    }
+                }
+            }
+
+            for (let i = 0; i < node.childCount; i++) {
+                walkAST(node.child(i));
+            }
+        }
+
+        walkAST(rootNode);
+
+        extractedNodes.push({
+            id: relativePath,
+            repoId: repoId,
+            name: relativePath.split('/').pop(),
+            type: "File",
+            file_path: relativePath,
+            start_line: 1,
+            end_line: sourceCode.split('\n').length || 1,
+            code: sourceCode || '// Empty file'
+        });
+
+        return extractedNodes;
+    }
+
+    function buildNodeObject(funcName: string, astNode: any, relativePath: string, repoId: string, sourceCode: string) {
+        return {
+            id: `${relativePath}::${funcName}`,
+            repoId: repoId,
+            name: funcName,
+            type: "Function",
+            file_path: relativePath,
+            start_line: astNode.startPosition.row + 1,
+            end_line: astNode.endPosition.row + 1,
+            code: sourceCode.substring(astNode.startIndex, astNode.endIndex)
+        };
     }
 };

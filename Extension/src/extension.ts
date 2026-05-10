@@ -77,30 +77,74 @@ class ImpactCodeLensProvider implements vscode.CodeLensProvider {
 			document.uri
 		);
 
-		if (!symbols) return [];
+		const coveredLines = new Set<number>();
 
-		for (const symbol of symbols) {
-			if (symbol.kind === vscode.SymbolKind.Function || symbol.kind === vscode.SymbolKind.Method) {
-				const startLine = symbol.range.start.line;
-				const endLine = symbol.range.end.line;
+		if (symbols) {
+			const findTargetSymbols = (syms: vscode.DocumentSymbol[]) => {
+				for (const symbol of syms) {
 
-				const isChanged = changedLines.some(line => line >= startLine && line <= endLine);
+					const isValidKind =
+						symbol.kind === vscode.SymbolKind.Function ||
+						symbol.kind === vscode.SymbolKind.Method ||
+						symbol.kind === vscode.SymbolKind.Variable ||
+						symbol.kind === vscode.SymbolKind.Class ||
+						symbol.kind === vscode.SymbolKind.Constant ||
+						symbol.kind === vscode.SymbolKind.Property ||
+						symbol.kind === vscode.SymbolKind.Object ||
+						symbol.kind === vscode.SymbolKind.Array;
 
-				if (isChanged) {
-					const functionId = `${relativePath}::${symbol.name}`;
-					const functionCode = document.getText(symbol.range);
+					if (isValidKind) {
+						const startLine = symbol.range.start.line;
+						const endLine = symbol.range.end.line;
 
-					const lens = new vscode.CodeLens(symbol.range);
-					lens.command = {
-						title: "🔍 Analyze Impact",
-						tooltip: "Check the blast radius of this change",
-						command: "butterfly.analyzeFunction",
-						arguments: [functionId, functionCode]
-					};
-					lenses.push(lens);
+						const isChanged = changedLines.some(line => {
+							if (line >= startLine && line <= endLine) {
+								coveredLines.add(line);
+								return true;
+							}
+							return false;
+						});
+
+						if (isChanged) {
+							const functionId = `${relativePath}::${symbol.name}`;
+							const functionCode = document.getText(symbol.range);
+
+							const lens = new vscode.CodeLens(symbol.range);
+							lens.command = {
+								title: "🔍 Analyze Impact",
+								tooltip: "Check the blast radius of this change",
+								command: "butterfly.analyzeFunction",
+								arguments: [functionId, functionCode]
+							};
+							lenses.push(lens);
+						}
+					}
+
+					if (symbol.children && symbol.children.length > 0) {
+						findTargetSymbols(symbol.children);
+					}
 				}
-			}
+			};
+
+			findTargetSymbols(symbols);
 		}
+
+		const hasUncoveredChanges = changedLines.some(line => !coveredLines.has(line));
+
+		if (hasUncoveredChanges) {
+			const firstLineRange = new vscode.Range(0, 0, 0, 0);
+			const fileCode = document.getText();
+
+			const lens = new vscode.CodeLens(firstLineRange);
+			lens.command = {
+				title: "🔍 Analyze Global File Impact",
+				tooltip: "Check the blast radius of top-level changes in this file",
+				command: "butterfly.analyzeFunction",
+				arguments: [relativePath, fileCode]
+			};
+			lenses.push(lens);
+		}
+
 		return lenses;
 	}
 }
@@ -128,7 +172,7 @@ export function activate(context: vscode.ExtensionContext) {
 					const gitUrl = await getGitOriginUrl(workspaceFolder.uri.fsPath);
 
 					const config = vscode.workspace.getConfiguration('butterfly');
-					const backendUrl = config.get('backendUrl', 'http://localhost:5555');
+					const backendUrl = config.get('backendUrl', 'https://butterflyeffect.onrender.com');
 					const local = 'http://localhost:5555';
 
 					const response = await axios.post(`${local}/api/impact/analyze`, {
@@ -140,11 +184,12 @@ export function activate(context: vscode.ExtensionContext) {
 					const data = response.data.data;
 
 					if (data.totalDependencies === 0) {
-						vscode.window.showInformationMessage(`✅ Safe to commit! No dependencies found for ${functionId}.`);
+						vscode.window.showInformationMessage(`🔍 No external callers found. Analyzing internal impact...`);
 					} else {
-						vscode.window.showWarningMessage(`⚠️ This change affects ${data.totalDependencies} functions! Opening detailed report...`);
-						ImpactReportPanel.createOrShow(data, functionId);
+						vscode.window.showWarningMessage(`⚠️ This change affects ${data.totalDependencies} files/functions! Opening report...`);
 					}
+
+					ImpactReportPanel.createOrShow(data, functionId);
 				} catch (error: any) {
 					if (error.response && error.response.status === 404) {
 						vscode.window.showErrorMessage(`⚠️ Repository not indexed! Please upload this project to the ButterflyEffect dashboard first.`);
