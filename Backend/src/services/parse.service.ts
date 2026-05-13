@@ -1,51 +1,82 @@
-import Parser from 'tree-sitter';
-import JavaScript from 'tree-sitter-javascript';
-import Python from 'tree-sitter-python';
-import Cpp from 'tree-sitter-cpp';
-import C from 'tree-sitter-c';
-import * as fs from 'fs';
-import * as path from 'path';
+import fs from 'fs';
+import path from 'path';
+import { parser, LANG_MAP, getAllFiles } from '../utils/parser.utils.js';
+import AstNode from '../models/AstNode.js';
 
-const IGNORED_FOLDERS = ['node_modules', '.git', 'build', '__pycache__', '.venv', 'env'];
+function extractNodesFromAST(rootNode: any, sourceCode: string, relativePath: string, repoId: string) {
+    const extractedNodes: any[] = [];
 
-const LANG_MAP: Record<string, any> = {
-    '.js': JavaScript,
-    '.jsx': JavaScript,
-    '.ts': JavaScript,
-    '.py': Python,
-    '.cpp': Cpp,
-    '.c': C,
-    '.h': C,
-    '.cxx': Cpp
-};
+    function walkAST(node: any) {
+        if (node.type === 'function_declaration' || node.type === 'method_definition') {
+            const nameNode = node.children.find((c: any) => c.type === 'identifier' || c.type === 'property_identifier');
+            const funcName = nameNode ? sourceCode.substring(nameNode.startIndex, nameNode.endIndex) : 'anonymous';
+            extractedNodes.push(buildNodeObject(funcName, node, relativePath, repoId, sourceCode));
+        } else if (node.type === 'variable_declarator') {
+            const nameNode = node.children.find((c: any) => c.type === 'identifier');
+            const funcName = nameNode ? sourceCode.substring(nameNode.startIndex, nameNode.endIndex) : null;
 
-const parser = new Parser();
+            if (funcName) {
+                let targetFuncNode = node.children.find((c: any) => c.type === 'arrow_function' || c.type === 'function_expression');
 
-function getAllFiles(dirPath: string, files: string[] = []): string[] {
-    let entries: string[] = [];
-    try {
-        entries = fs.readdirSync(dirPath);
-    } catch (e) {
-        console.log(`Access denied: ${e}`);
-        return files;
-    }
+                if (!targetFuncNode) {
+                    const callExpr = node.children.find((c: any) => c.type === 'call_expression');
+                    if (callExpr) {
+                        const args = callExpr.children.find((c: any) => c.type === 'arguments');
+                        if (args) {
+                            targetFuncNode = args.children.find((c: any) => c.type === 'arrow_function' || c.type === 'function_expression');
+                        }
+                    }
+                }
 
-    for (const entry of entries) {
-        if (IGNORED_FOLDERS.includes(entry)) continue;
-        const fullpath = path.join(dirPath, entry);
-        try {
-            const stat = fs.statSync(fullpath);
-            if (stat.isDirectory()) {
-                getAllFiles(fullpath, files);
-            } else {
-                const ext = path.extname(entry).toLowerCase();
-                if (LANG_MAP[ext]) {
-                    files.push(fullpath);
+                if (targetFuncNode) {
+                    extractedNodes.push(buildNodeObject(funcName, targetFuncNode, relativePath, repoId, sourceCode));
                 }
             }
-        } catch (e) { }
+        } else if (node.type === 'export_statement') {
+            const callExpr = node.children.find((c: any) => c.type === 'call_expression');
+            if (callExpr) {
+                const args = callExpr.children.find((c: any) => c.type === 'arguments');
+                if (args) {
+                    const targetFuncNode = args.children.find((c: any) => c.type === 'arrow_function' || c.type === 'function_expression');
+                    if (targetFuncNode) {
+                        extractedNodes.push(buildNodeObject('defaultExport', targetFuncNode, relativePath, repoId, sourceCode));
+                    }
+                }
+            }
+        }
+
+        for (let i = 0; i < node.childCount; i++) {
+            walkAST(node.child(i));
+        }
     }
-    return files;
+
+    walkAST(rootNode);
+
+    extractedNodes.push({
+        id: relativePath,
+        repoId: repoId,
+        name: relativePath.split('/').pop(),
+        type: "File",
+        file_path: relativePath,
+        start_line: 1,
+        end_line: sourceCode.split('\n').length || 1,
+        code: sourceCode || ''
+    });
+
+    return extractedNodes;
+}
+
+function buildNodeObject(funcName: string, astNode: any, relativePath: string, repoId: string, sourceCode: string) {
+    return {
+        id: `${relativePath}::${funcName}`,
+        repoId: repoId,
+        name: funcName,
+        type: "Function",
+        file_path: relativePath,
+        start_line: astNode.startPosition.row + 1,
+        end_line: astNode.endPosition.row + 1,
+        code: sourceCode.substring(astNode.startIndex, astNode.endIndex)
+    };
 }
 
 function serializeSemanticNode(node: any, sourceCode: string) {
@@ -57,22 +88,16 @@ function serializeSemanticNode(node: any, sourceCode: string) {
         }
     }
 
-    // ADD function_declaration and arrow_function to the list
-
-
     const shouldCaptureText = [
         'identifier', 'string', 'property_identifier', 'type_identifier',
         'field_identifier', 'function_declarator',
         'function_declaration', 'arrow_function'
     ].includes(node.type);
 
-
     return {
         type: node.type,
-        // ADD THESE TWO LINES:
         startRow: node.startPosition.row,
         endRow: node.endPosition.row,
-
         text: shouldCaptureText
             ? sourceCode.substring(node.startIndex, node.endIndex)
             : undefined,
@@ -80,19 +105,15 @@ function serializeSemanticNode(node: any, sourceCode: string) {
     };
 }
 
-async function run(folderId: string) {
-    const FINAL_INPUT_DIR = path.join(process.cwd(), 'temp', folderId);
+export const processRepositoryAST = async (folderId: string, tempdir: string, repoId: string) => {
     const FINAL_OUTPUT_DIR = path.join(process.cwd(), 'ast_results', folderId);
 
-    if (!fs.existsSync(FINAL_INPUT_DIR)) {
-        console.log(`Input folder doesn't exist : ${FINAL_INPUT_DIR}`);
-        return;
-    }
+    if (!fs.existsSync(tempdir)) return [];
 
-    const sourceFiles = getAllFiles(FINAL_INPUT_DIR);
-    console.log(`[Parser] found ${sourceFiles.length} supported files in ${folderId}`);
+    const sourceFiles = getAllFiles(tempdir);
+    if (sourceFiles.length === 0) return [];
 
-    if (sourceFiles.length === 0) return;
+    let allNodesToSave: any[] = [];
 
     for (const fullPath of sourceFiles) {
         try {
@@ -100,26 +121,27 @@ async function run(folderId: string) {
             const selectedLang = LANG_MAP[ext];
             if (!selectedLang) continue;
 
-            parser.setLanguage(selectedLang);
             const sourceCode = fs.readFileSync(fullPath, 'utf8');
+            parser.setLanguage(selectedLang);
+
             const tree = parser.parse(sourceCode);
+            const relativePath = path.relative(tempdir, fullPath).replace(/\\/g, '/');
+
             const semanticTree = serializeSemanticNode(tree.rootNode, sourceCode);
-
-            const relativePath = path.relative(FINAL_INPUT_DIR, fullPath).replace(/\\/g, '/');
             const outputPath = path.join(FINAL_OUTPUT_DIR, relativePath + '.json');
-
             const outputDir = path.dirname(outputPath);
+
             if (!fs.existsSync(outputDir)) {
                 fs.mkdirSync(outputDir, { recursive: true });
             }
 
             fs.writeFileSync(outputPath, JSON.stringify(semanticTree, null, 2));
 
-            console.log(`Parsed successfully: ${relativePath}`);
-        } catch (error) {
-            console.log(`Error parsing ${fullPath}: ${error}`);
-        }
-    }
-}
+            const fileNodes = extractNodesFromAST(tree.rootNode, sourceCode, relativePath, repoId);
+            allNodesToSave = allNodesToSave.concat(fileNodes);
 
-export default run;
+        } catch (error) { }
+    }
+
+    return allNodesToSave;
+};

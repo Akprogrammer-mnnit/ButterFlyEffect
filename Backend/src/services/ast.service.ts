@@ -4,7 +4,7 @@ import { glob } from 'glob';
 import { GraphRepo } from '../../db/graph.repo.js';
 import { ApiError } from '../utils/apiError.js';
 import { v4 as uuidv4 } from 'uuid';
-import { saveAstNodesToMongo } from './astMongo.service.js';
+
 interface AstNode {
     type: string;
     text?: string;
@@ -14,12 +14,10 @@ interface AstNode {
 }
 
 export class AstService {
-
     async processAstFolder(folderName: string, repoId: string = uuidv4()) {
         const searchPath = `./ast_results/${folderName}/**/*.json`;
 
         try {
-            console.log(`[Service] Scanning: ${searchPath}`);
             const files = await glob(searchPath.replace(/\\/g, '/'));
 
             if (files.length === 0) {
@@ -36,28 +34,23 @@ export class AstService {
 
             const uniqueNodes = new Map<string, any>();
             const uniqueEdges = new Map<string, any>();
-
             const fileImports = new Map<string, Map<string, string>>();
             const fileFunctions = new Map<string, Set<string>>();
             const rawCalls: any[] = [];
-            const mongoNodes: any[] = [];
 
-            for (const filePath of files) {
+            await Promise.all(files.map(async (filePath) => {
                 const fileId = path.relative(`./ast_results/${folderName}`, filePath)
                     .replace(/\.json$/, '')
                     .replace(/\\/g, '/');
 
                 try {
-                    const content = fs.readFileSync(filePath, 'utf8');
+                    const content = await fs.promises.readFile(filePath, 'utf8');
                     const rootNode = JSON.parse(content);
                     this.traverseTree(
-                        rootNode, fileId, fileId, uniqueNodes, uniqueEdges, fileImports, fileFunctions, rawCalls, mongoNodes, validFileIds
+                        rootNode, fileId, fileId, uniqueNodes, uniqueEdges, fileImports, fileFunctions, rawCalls, validFileIds
                     );
-                } catch (e) {
-                    console.error(`[Service] JSON Parse Error: ${filePath}`);
-                }
-            }
-
+                } catch (e) { }
+            }));
 
             for (const call of rawCalls) {
                 const { fromContext, fromFileId, calleeText } = call;
@@ -76,43 +69,20 @@ export class AstService {
                     if (!uniqueNodes.has(targetFuncId)) {
                         uniqueNodes.set(targetFuncId, { id: targetFuncId, label: 'Function', name: methodName });
                     }
-                }
-
-                else if (fileFunctions.get(fromFileId)?.has(methodName)) {
+                } else if (fileFunctions.get(fromFileId)?.has(methodName)) {
                     targetFuncId = `${fromFileId}::${methodName}`;
                 }
-
 
                 if (targetFuncId) {
                     const edgeKey = `${fromContext}-CALLS-${targetFuncId}`;
                     uniqueEdges.set(edgeKey, { from: fromContext, to: targetFuncId, type: 'CALLS' });
                 }
             }
-            for (const mNode of mongoNodes) {
-                if (mNode.start_line !== undefined && mNode.end_line !== undefined) {
-                    try {
-
-                        const originalSourcePath = path.join(process.cwd(), 'temp', folderName, mNode.file_path);
-
-                        if (fs.existsSync(originalSourcePath)) {
-                            const fileContent = fs.readFileSync(originalSourcePath, 'utf8');
-                            const codeLines = fileContent.split('\n');
-                            mNode.code = codeLines.slice(mNode.start_line, mNode.end_line + 1).join('\n');
-                        } else {
-                            mNode.code = "Source file not found on disk.";
-                        }
-                    } catch (err) {
-                        mNode.code = "Error reading snippet.";
-                    }
-                }
-            }
 
             const allNodes = Array.from(uniqueNodes.values());
             const allEdges = Array.from(uniqueEdges.values());
 
-            console.log(`[Service] Extracted ${allNodes.length} perfectly validated nodes and ${allEdges.length} dependencies.`);
             await GraphRepo.batchWrite(allNodes, allEdges, repoId);
-            await saveAstNodesToMongo(repoId, mongoNodes);
 
         } catch (err: any) {
             if (err instanceof ApiError) throw err;
@@ -129,7 +99,6 @@ export class AstService {
         fileImports: Map<string, Map<string, string>>,
         fileFunctions: Map<string, Set<string>>,
         rawCalls: any[],
-        mongoNodes: any[],
         validFileIds: Set<string>,
         assignedName?: string
     ) {
@@ -198,13 +167,11 @@ export class AstService {
         }
 
         let currentContext = parentContext;
-
         const isFunction = ['function_declaration', 'function_expression', 'arrow_function', 'method_definition'].includes(node.type);
 
         if (isFunction) {
             const idNode = node.children?.find(c => ['identifier', 'property_identifier'].includes(c.type));
             let funcName = idNode?.text || nextAssignedName;
-
 
             const isValidName = funcName &&
                 funcName.toLowerCase() !== 'anonymous' &&
@@ -223,16 +190,6 @@ export class AstService {
                 });
 
                 edges.set(`${fileId}-DEFINES-${funcId}`, { from: fileId, to: funcId, type: 'DEFINES' });
-
-                mongoNodes.push({
-                    id: funcId,
-                    name: funcName,
-                    label: 'Function',
-                    file_path: fileId,
-                    start_line: node.startRow,
-                    end_line: node.endRow
-                });
-
                 fileFunctions.get(fileId)?.add(funcName);
                 currentContext = funcId;
             }
@@ -256,12 +213,10 @@ export class AstService {
                 const shouldPassName = ['variable_declarator', 'assignment_expression', 'pair', 'parenthesized_expression', 'expression_statement'].includes(node.type);
 
                 this.traverseTree(
-                    child, fileId, currentContext, nodes, edges, fileImports, fileFunctions, rawCalls, mongoNodes,
-                    validFileIds,
+                    child, fileId, currentContext, nodes, edges, fileImports, fileFunctions, rawCalls, validFileIds,
                     shouldPassName ? nextAssignedName : undefined
                 );
             }
         }
-
     }
 }
