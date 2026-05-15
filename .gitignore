@@ -6,3 +6,4 @@ temp/
 Extension/dist/
 Extension/dist/extension.js.LICENSE.txt
 Extension/*.vsix
+dist/

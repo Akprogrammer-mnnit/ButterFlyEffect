@@ -19,15 +19,23 @@ export const analyzeRepo = asyncHandler(async (req: Request, res: Response) => {
     if (!cloneResult) throw new ApiError(404, "could not clone the repo");
 
     const { tempdir, folderid: folderId } = cloneResult;
-    const uniqueRepoId = uuidv4();
-
+    const repo = await Repository.findOne({ url: gitHubURL });
+    let uniqueRepoId: string;
+    if (!repo) {
+        uniqueRepoId = uuidv4();
+    }
+    else {
+        uniqueRepoId = repo.repoId;
+    }
     try {
         const repoName = gitHubURL.split('/').pop() || 'Unknown Repo';
-        await Repository.findOneAndUpdate(
-            { url: gitHubURL },
-            { name: repoName, repoId: uniqueRepoId, status: 'synced' },
-            { upsert: true, new: true }
-        );
+        if (!repo) {
+            await Repository.create({
+                repoId: uniqueRepoId,
+                url: gitHubURL,
+                name: repoName
+            });
+        }
         const mongoNodesToSave = await processRepositoryAST(folderId, tempdir, uniqueRepoId);
         if (mongoNodesToSave && mongoNodesToSave.length > 0) {
             await saveAstNodesToMongo(uniqueRepoId, mongoNodesToSave);
@@ -43,7 +51,7 @@ export const analyzeRepo = asyncHandler(async (req: Request, res: Response) => {
 
     } finally {
         if (tempdir) {
-            deleteTemp(tempdir);
+            deleteTemp(tempdir, folderId);
         }
     }
 });

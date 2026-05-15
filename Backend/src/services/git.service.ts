@@ -22,8 +22,14 @@ export const cloneRepo = async (repourl: string) => {
     }
 };
 
-export const deleteTemp = (tempDir: string) => {
+export const deleteTemp = (tempDir: string, folderId: string) => {
+    const OUTPUT_DIR = path.join(process.cwd(), 'ast_results', folderId);
+    if (fs.existsSync(OUTPUT_DIR)) {
+        fs.rmSync(OUTPUT_DIR, { recursive: true, force: true });
+    }
+
     if (fs.existsSync(tempDir)) {
         fs.rmSync(tempDir, { recursive: true, force: true });
     }
+
 }

@@ -30,8 +30,6 @@ export const getImpactAnalysis = asyncHandler(async (req: Request, res: Response
     const codes = await generateCompleteImpactReport(result, code, correctRepoId);
     const report = await analyzeImpact(codes);
 
-    console.log("Report: ", report);
-
     return res.status(200).json({
         success: true,
         message: "Impact analysis complete",
