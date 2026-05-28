@@ -30,6 +30,10 @@ Using ButterflyEffect is designed to be completely frictionless for the develope
 * **AI/LLM:** Grok API (Semantic Analysis)
 * **Client:** VS Code Extension API
 
+## Architecture Diagram
+
+![ButterflyEffect Architecture](./Diagram.png)
+
 ## How it Works (Under the Hood)
 1. **Code Parsing:** Uses `Tree-sitter` to parse raw JS/TS files into Abstract Syntax Trees (ASTs) in milliseconds.
 2. **Node Extraction:** Custom recursive algorithms extract functions, variables, and default exports while filtering out noise.
