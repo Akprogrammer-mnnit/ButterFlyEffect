@@ -16,17 +16,13 @@ export const analyzeRepo = asyncHandler(async (req: Request, res: Response) => {
     }
 
     const cloneResult = await cloneRepo(gitHubURL);
+
     if (!cloneResult) throw new ApiError(404, "could not clone the repo");
 
     const { tempdir, folderid: folderId } = cloneResult;
     const repo = await Repository.findOne({ url: gitHubURL });
-    let uniqueRepoId: string;
-    if (!repo) {
-        uniqueRepoId = uuidv4();
-    }
-    else {
-        uniqueRepoId = repo.repoId;
-    }
+    let uniqueRepoId: string = repo ? repo.repoId : uuidv4();
+
     try {
         const repoName = gitHubURL.split('/').pop() || 'Unknown Repo';
         if (!repo) {
@@ -36,13 +32,13 @@ export const analyzeRepo = asyncHandler(async (req: Request, res: Response) => {
                 name: repoName
             });
         }
-        const mongoNodesToSave = await processRepositoryAST(folderId, tempdir, uniqueRepoId);
-        if (mongoNodesToSave && mongoNodesToSave.length > 0) {
-            await saveAstNodesToMongo(uniqueRepoId, mongoNodesToSave);
+        const { mongoNodes, rawAstData } = await processRepositoryAST(folderId, tempdir, uniqueRepoId);
+        if (mongoNodes && mongoNodes.length > 0) {
+            await saveAstNodesToMongo(uniqueRepoId, mongoNodes);
         }
-        const astService = new AstService();
-        await astService.processAstFolder(folderId, uniqueRepoId);
 
+        const astService = new AstService();
+        await astService.processAstData(rawAstData, uniqueRepoId);
         return res.status(200).json({
             message: "Successfully uploaded",
             success: true,

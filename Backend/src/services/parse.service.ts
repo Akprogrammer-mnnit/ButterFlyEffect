@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { parser, LANG_MAP, getAllFiles } from '../utils/parser.utils.js';
 import AstNode from '../models/AstNode.js';
+import { promises as fsPromises } from 'fs';
 
 function extractNodesFromAST(rootNode: any, sourceCode: string, relativePath: string, repoId: string) {
     const extractedNodes: any[] = [];
@@ -104,44 +105,43 @@ function serializeSemanticNode(node: any, sourceCode: string) {
         children
     };
 }
-
 export const processRepositoryAST = async (folderId: string, tempdir: string, repoId: string) => {
-    const FINAL_OUTPUT_DIR = path.join(process.cwd(), 'ast_results', folderId);
-
-    if (!fs.existsSync(tempdir)) return [];
+    if (!fs.existsSync(tempdir)) return { mongoNodes: [], rawAstData: [] };
 
     const sourceFiles = getAllFiles(tempdir);
-    if (sourceFiles.length === 0) return [];
+    if (sourceFiles.length === 0) return { mongoNodes: [], rawAstData: [] };
 
     let allNodesToSave: any[] = [];
+    let allRawAstData: any[] = [];
+    const BATCH_SIZE = 50;
 
-    for (const fullPath of sourceFiles) {
-        try {
-            const ext = path.extname(fullPath).toLowerCase();
-            const selectedLang = LANG_MAP[ext];
-            if (!selectedLang) continue;
+    for (let i = 0; i < sourceFiles.length; i += BATCH_SIZE) {
+        const batch = sourceFiles.slice(i, i + BATCH_SIZE);
 
-            const sourceCode = fs.readFileSync(fullPath, 'utf8');
-            parser.setLanguage(selectedLang);
+        const batchResults = await Promise.all(batch.map(async (fullPath) => {
+            try {
+                const ext = path.extname(fullPath).toLowerCase();
+                const selectedLang = LANG_MAP[ext];
+                if (!selectedLang) return null;
+                const sourceCode = await fsPromises.readFile(fullPath, 'utf8');
+                parser.setLanguage(selectedLang);
 
-            const tree = parser.parse(sourceCode);
-            const relativePath = path.relative(tempdir, fullPath).replace(/\\/g, '/');
-
-            const semanticTree = serializeSemanticNode(tree.rootNode, sourceCode);
-            const outputPath = path.join(FINAL_OUTPUT_DIR, relativePath + '.json');
-            const outputDir = path.dirname(outputPath);
-
-            if (!fs.existsSync(outputDir)) {
-                fs.mkdirSync(outputDir, { recursive: true });
+                const tree = parser.parse(sourceCode);
+                const relativePath = path.relative(tempdir, fullPath).replace(/\\/g, '/');
+                const semanticTree = serializeSemanticNode(tree.rootNode, sourceCode);
+                const fileNodes = extractNodesFromAST(tree.rootNode, sourceCode, relativePath, repoId);
+                return { fileNodes, semanticData: { fileId: relativePath, rootNode: semanticTree } };
+            } catch (error) {
+                return null;
             }
+        }));
 
-            fs.writeFileSync(outputPath, JSON.stringify(semanticTree, null, 2));
-
-            const fileNodes = extractNodesFromAST(tree.rootNode, sourceCode, relativePath, repoId);
-            allNodesToSave = allNodesToSave.concat(fileNodes);
-
-        } catch (error) { }
+        batchResults.forEach(result => {
+            if (result) {
+                allNodesToSave = allNodesToSave.concat(result.fileNodes);
+                allRawAstData.push(result.semanticData);
+            }
+        });
     }
-
-    return allNodesToSave;
+    return { mongoNodes: allNodesToSave, rawAstData: allRawAstData };
 };

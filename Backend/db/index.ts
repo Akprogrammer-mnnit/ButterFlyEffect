@@ -1,6 +1,7 @@
 import neo4j, { Driver, Session } from 'neo4j-driver'
 import dotenv from 'dotenv';
 dotenv.config();
+
 const uri = process.env.NEO4J_URI as string;
 const user = process.env.NEO4J_USER as string;
 const password = process.env.NEO4J_PASSWORD as string;
@@ -28,6 +29,17 @@ export const connectDB = async () => {
     try {
         await driver.verifyConnectivity();
         console.log(`connected to neo4j aura db at ${uri}`);
+        const session = driver.session();
+        try {
+            await session.run(`CREATE INDEX node_id_index IF NOT EXISTS FOR (n:Function) ON (n.id)`);
+            await session.run(`CREATE INDEX file_id_index IF NOT EXISTS FOR (n:File) ON (n.id)`);
+            console.log('Neo4j Indexes Verified.');
+        } catch (idxErr) {
+            console.error('Failed to create indexes', idxErr);
+        } finally {
+            await session.close();
+        }
+
     }
     catch (e) {
         console.error('Neo4j connection failed', e);
@@ -35,9 +47,5 @@ export const connectDB = async () => {
     }
 }
 
-
-export const getSession = (): Session => {
-    return driver.session();
-};
-
+export const getSession = (): Session => driver.session();
 export default driver;

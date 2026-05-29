@@ -4,7 +4,6 @@ dotenv.config();
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
-
 export interface AffectedNode {
   id: string;
   name: string;
@@ -30,6 +29,7 @@ export interface ChangedNode {
 export interface ImpactAnalysisInput {
   changed_node: ChangedNode;
   affected_nodes: AffectedNode[];
+  total_graph_dependencies: number;
 }
 
 export interface ImpactAnalysisResult {
@@ -48,7 +48,7 @@ export interface ImpactAnalysisResult {
 }
 
 function buildPrompt(input: ImpactAnalysisInput): string {
-  const { changed_node, affected_nodes } = input;
+  const { changed_node, affected_nodes, total_graph_dependencies } = input;
 
   const affectedNodesText = affected_nodes
     .map((node, index) => {
@@ -56,8 +56,8 @@ function buildPrompt(input: ImpactAnalysisInput): string {
     ### Affected Node ${index + 1}
     - **Name:** ${node.name}
     - **Type:** ${node.type}
-    - **File:** ${node.file_path} (lines ${node.start_line}–${node.end_line})
-    - **Relationship to changed node:** ${node.relationship}
+    - **File:** ${node.file_path}
+    - **Relationship:** ${node.relationship}
     - **Code:**
     \`\`\`
     ${node.code}
@@ -67,13 +67,12 @@ function buildPrompt(input: ImpactAnalysisInput): string {
     .join('\n---\n');
 
   return `
-    You are an expert software engineer and code impact analyst. Your job is to deeply analyze a code change and determine its ripple effects across a codebase using graph-based dependency data.
+    You are an expert software engineer and code impact analyst. 
       
     ---
-    ## CHANGED NODE (The code that was modified)
+    ## CHANGED NODE
     - **Name:** ${changed_node.name}
-    - **Type:** ${changed_node.type}
-    - **File:** ${changed_node.file_path} (lines ${changed_node.start_line}–${changed_node.end_line})
+    - **File:** ${changed_node.file_path}
       
     - **Code BEFORE change:**
     \`\`\`
@@ -87,46 +86,35 @@ function buildPrompt(input: ImpactAnalysisInput): string {
       
     ---
       
-    ## AFFECTED NODES (Nodes directly or indirectly dependent on the changed node)
-    Total affected: ${affected_nodes.length}
+    ## AFFECTED NODES
+    MASSIVE BLAST RADIUS DETECTED: This change impacts a total of **${total_graph_dependencies}** nodes in the graph!
+    Displaying the top ${affected_nodes.length} most critical nodes for your analysis:
       
     ${affectedNodesText}
       
     ---
       
     ## YOUR TASK
+    Analyze the exact diff of the CHANGED NODE. 
+    Acknowledge in your summary that this change ripples across ${total_graph_dependencies} total files.
       
-    Carefully compare the BEFORE and AFTER code of **${changed_node.name}**. 
-      
-    Respond ONLY in the following JSON format with no additional text, no markdown backticks, no preamble:
-      
+    Respond ONLY in the following JSON format:
     {
       "risk_level": "LOW | MEDIUM | HIGH | CRITICAL",
-      "summary": "One concise paragraph summarizing exactly what changed and the overall impact on dependent nodes",
-      "direct_issues": [
-        "Description of any syntax error, vulnerability, or logic flaw found DIRECTLY in the changed code/global variable itself"
-      ],
+      "summary": "One concise paragraph...",
+      "direct_issues": ["..."],
       "impact_breakdown": [
         {
-          "node_name": "name of the affected node",
-          "node_type": "function | class | variable",
-          "file_path": "path to file",
-          "relationship": "relationship to changed node",
-          "impact": "Precise technical description of how this node is affected by the specific change made",
-          "may_break": true or false
+          "node_name": "...",
+          "node_type": "...",
+          "file_path": "...",
+          "relationship": "...",
+          "impact": "...",
+          "may_break": true
         }
       ],
-      "potential_bugs": [
-        "Specific potential bug or breaking change description 1 in the dependent code"
-      ]
+      "potential_bugs": ["..."]
     }
-      
-    ## RULES FOR YOUR ANALYSIS:
-    1. CRITICAL FIRST STEP: Look at the "Code AFTER change" (especially if it is a global variable or file-level change). If the change introduces a direct vulnerability, syntax error, or logical flaw IN THE CHANGED NODE ITSELF, list it in "direct_issues".
-    2. THEN, analyze the exact diff — identify what parameters, types, or exports changed.
-    3. FINALLY, determine the ripple effect on the affected nodes. Be precise.
-    4. risk_level must be: LOW (cosmetic/no logic change), MEDIUM (logic change with limited scope), HIGH (core logic change affecting multiple nodes), CRITICAL (breaking change that will definitely cause failures)
-    5. Return ONLY the JSON object — no markdown, no backticks, no explanation before or after.
     `;
 }
 
@@ -139,7 +127,7 @@ export async function analyzeImpact(input: ImpactAnalysisInput): Promise<ImpactA
       messages: [
         {
           role: 'system',
-          content: 'You are an expert software engineer and code impact analyst. You always respond with pure valid JSON only — no markdown, no backticks, no explanation.'
+          content: 'You are an expert software engineer and code impact analyst. You always respond with pure valid JSON only.'
         },
         {
           role: 'user',
@@ -151,17 +139,11 @@ export async function analyzeImpact(input: ImpactAnalysisInput): Promise<ImpactA
     });
 
     const response = completion.choices[0].message.content!;
+    const cleaned = response.replace(/```json/g, '').replace(/```/g, '').trim();
 
-    const cleaned = response
-      .replace(/```json/g, '')
-      .replace(/```/g, '')
-      .trim();
-
-    const parsed: ImpactAnalysisResult = JSON.parse(cleaned);
-    return parsed;
+    return JSON.parse(cleaned);
 
   } catch (error: any) {
     throw new Error(`Groq analysis failed: ${error.message}`);
   }
 }
-

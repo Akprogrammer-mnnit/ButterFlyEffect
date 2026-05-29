@@ -14,22 +14,15 @@ interface AstNode {
 }
 
 export class AstService {
-    async processAstFolder(folderName: string, repoId: string = uuidv4()) {
-        const searchPath = `./ast_results/${folderName}/**/*.json`;
-
+    async processAstData(rawAstData: any[], repoId: string = uuidv4()) {
         try {
-            const files = await glob(searchPath.replace(/\\/g, '/'));
-
-            if (files.length === 0) {
-                throw new ApiError(404, `No .json files found in ${searchPath}`);
+            if (!rawAstData || rawAstData.length === 0) {
+                throw new ApiError(404, `No AST data provided`);
             }
 
             const validFileIds = new Set<string>();
-            for (const filePath of files) {
-                const fileId = path.relative(`./ast_results/${folderName}`, filePath)
-                    .replace(/\.json$/, '')
-                    .replace(/\\/g, '/');
-                validFileIds.add(fileId);
+            for (const data of rawAstData) {
+                validFileIds.add(data.fileId.replace(/\.json$/, '').replace(/\\/g, '/'));
             }
 
             const uniqueNodes = new Map<string, any>();
@@ -38,19 +31,12 @@ export class AstService {
             const fileFunctions = new Map<string, Set<string>>();
             const rawCalls: any[] = [];
 
-            await Promise.all(files.map(async (filePath) => {
-                const fileId = path.relative(`./ast_results/${folderName}`, filePath)
-                    .replace(/\.json$/, '')
-                    .replace(/\\/g, '/');
-
-                try {
-                    const content = await fs.promises.readFile(filePath, 'utf8');
-                    const rootNode = JSON.parse(content);
-                    this.traverseTree(
-                        rootNode, fileId, fileId, uniqueNodes, uniqueEdges, fileImports, fileFunctions, rawCalls, validFileIds
-                    );
-                } catch (e) { }
-            }));
+            for (const data of rawAstData) {
+                const fileId = data.fileId.replace(/\.json$/, '').replace(/\\/g, '/');
+                this.traverseTree(
+                    data.rootNode, fileId, fileId, uniqueNodes, uniqueEdges, fileImports, fileFunctions, rawCalls, validFileIds
+                );
+            }
 
             for (const call of rawCalls) {
                 const { fromContext, fromFileId, calleeText } = call;

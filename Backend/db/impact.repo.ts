@@ -13,8 +13,10 @@ export class ImpactRepo {
 
         try {
             const query = `
-                MATCH p = (caller {repoId: $repoId})-[:CALLS*1..${maxDepth}]->(target:Function {repoId: $repoId})
-                WHERE target.id IN $targetFunctionIds
+                UNWIND $targetFunctionIds AS targetId
+                MATCH (target:Function {id: targetId, repoId: $repoId})
+                MATCH p = (target)<-[:CALLS*1..${maxDepth}]-(caller)
+                WHERE caller.repoId = $repoId
                 RETURN 
                     caller.id AS callerId, 
                     caller.name AS callerName, 
@@ -30,8 +32,8 @@ export class ImpactRepo {
                 const fileIds = targetFunctionIds.map(id => id.split('::')[0]);
 
                 const fallbackQuery = `
-                    MATCH (caller:File {repoId: $repoId})
-                    WHERE caller.id IN $fileIds
+                    UNWIND $fileIds AS fileId
+                    MATCH (caller:File {id: fileId, repoId: $repoId})
                     RETURN 
                         caller.id AS callerId, 
                         caller.name AS callerName, 

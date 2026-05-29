@@ -4,9 +4,13 @@ import { ChangedNode, AffectedNode } from './groq.service.js';
 export const generateCompleteImpactReport = async (neo4jPayload: any, newCode: any, repoId: string) => {
     const targetIds = neo4jPayload.analyzedTargets || [];
     const rawDependencies = neo4jPayload.dependencies || [];
-
     const dependencies = rawDependencies.filter((dep: any) => !targetIds.includes(dep.id));
-    const dependencyIds = dependencies.map((dep: any) => dep.id);
+
+    const MAX_LLM_NODES = 30;
+    const MAX_CODE_NODES = 10;
+
+    const dependenciesForLLM = dependencies.slice(0, MAX_LLM_NODES);
+    const dependencyIds = dependenciesForLLM.map((dep: any) => dep.id);
 
     const allIdsToFetch = [...targetIds, ...dependencyIds].flatMap(id => {
         if (id.includes('.js::')) return [id, id.replace('.js::', '.ts::'), id.replace('.js::', '.tsx::')];
@@ -22,19 +26,16 @@ export const generateCompleteImpactReport = async (neo4jPayload: any, newCode: a
     const nodeMap = new Map();
     dbAstNodes.forEach(node => {
         nodeMap.set(node.id, node);
-
         if (node.id.includes('.ts::')) nodeMap.set(node.id.replace('.ts::', '.js::'), node);
         if (node.id.endsWith('.ts')) nodeMap.set(node.id.replace(/\.ts$/, '.js'), node);
     });
 
     const mainTargetId = targetIds[0];
-
     let dbTarget = nodeMap.get(mainTargetId) || nodeMap.get(mainTargetId.replace('.ts', '.js'));
 
     if (!dbTarget && mainTargetId.includes('::')) {
         const filePathOnly = mainTargetId.split('::')[0];
         dbTarget = nodeMap.get(filePathOnly);
-        if (dbTarget) console.log(`[Generate Service] Fell back to file scope for target: ${filePathOnly}`);
     }
 
     const changed_node: ChangedNode = dbTarget ? {
@@ -56,18 +57,18 @@ export const generateCompleteImpactReport = async (neo4jPayload: any, newCode: a
         new_code: newCode || '// No new code'
     };
 
-    const affected_nodes: AffectedNode[] = dependencies.map((neoNode: any) => {
+    const affected_nodes: AffectedNode[] = dependenciesForLLM.map((neoNode: any, index: number) => {
         const dbNode = nodeMap.get(neoNode.id);
+        const includeCode = index < MAX_CODE_NODES;
 
         if (!dbNode) {
-            console.log(`🚨 [STILL MISSING] Neo4j ID: "${neoNode.id}"`);
             return {
                 id: neoNode.id,
                 name: neoNode.id.split('/').pop() || neoNode.id,
                 type: 'file_or_external',
                 file_path: neoNode.id,
                 start_line: 1, end_line: 1,
-                code: '// AST Code unavailable. Graph knows it exists, but MongoDB query failed.',
+                code: '// AST Code unavailable.',
                 relationship: neoNode.relationship || neoNode.type || 'DEPENDS_ON'
             };
         }
@@ -79,7 +80,7 @@ export const generateCompleteImpactReport = async (neo4jPayload: any, newCode: a
             file_path: dbNode.file_path || neoNode.id,
             start_line: dbNode.start_line || 1,
             end_line: dbNode.end_line || 1,
-            code: dbNode.code,
+            code: includeCode ? dbNode.code : '// Source code omitted to prevent token limit overflow. Please rely on function name and relationship.',
             relationship: neoNode.relationship || neoNode.type || 'DEPENDS_ON'
         };
     });
@@ -87,6 +88,6 @@ export const generateCompleteImpactReport = async (neo4jPayload: any, newCode: a
     return {
         changed_node,
         affected_nodes,
-        actualDependencyCount: affected_nodes.length
+        total_graph_dependencies: dependencies.length
     };
 };
