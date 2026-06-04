@@ -3,7 +3,7 @@ dotenv.config({ path: './.env' })
 import app from './app.js';
 import { connectDB } from '../db/index.js';
 import { connectMongoDB } from '../db/mongo.js';
-
+import './services/bullmq.service.js';
 
 connectDB()
     .then(() => {
