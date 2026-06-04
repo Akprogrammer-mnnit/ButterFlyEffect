@@ -2,10 +2,13 @@ import { useState } from "react"
 import axios from "axios"
 
 interface ApiResponse {
-    data: {
-        message: string;
+    success: boolean;
+    message: string;
+    data?: {
+        repoId: string;
     }
 }
+
 function GetGitHubUrl() {
     const [url, setUrl] = useState<string>("")
     const [loading, setLoading] = useState<boolean>(false)
@@ -18,12 +21,13 @@ function GetGitHubUrl() {
         setMessage("")
         setError("")
         try {
-            const response: ApiResponse = await axios.post(
+            const response = await axios.post<ApiResponse>(
                 `${import.meta.env.VITE_BACKEND_URL}/api/clone`,
                 { gitHubURL: url }
             )
-            if (response?.data) {
-                setMessage(response.data.message)
+            if (response?.data?.success) {
+                const fetchedRepoId = response.data.data?.repoId;
+                setMessage(`${response.data.message} Tracking ID: ${fetchedRepoId}`);
             }
         } catch {
             setError("Failed to Upload")
@@ -35,7 +39,7 @@ function GetGitHubUrl() {
     if (loading) {
         return (
             <div className="min-h-screen flex items-center justify-center bg-gray-950 text-white">
-                <div className="animate-pulse text-lg tracking-wide">Cloning repository…</div>
+                <div className="animate-pulse text-lg tracking-wide">Sending to Queue…</div>
             </div>
         )
     }
