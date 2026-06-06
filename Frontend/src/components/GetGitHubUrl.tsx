@@ -27,7 +27,7 @@ function GetGitHubUrl() {
             )
             if (response?.data?.success) {
                 const fetchedRepoId = response.data.data?.repoId;
-                setMessage(`${response.data.message} Tracking ID: ${fetchedRepoId}`);
+                setMessage(`${response.data.message}`);
             }
         } catch {
             setError("Failed to Upload")
